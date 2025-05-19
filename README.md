@@ -273,10 +273,6 @@ For the evaluation frameworks and methods used in this work, please cite:
 - Special thanks to the open-source community for providing valuable resources and tools
 - We appreciate the authors of EvalPlus, AlpacaEval, and other evaluation frameworks for making their code publicly available
 
-## License
-
-This project is licensed under the Apache License 2.0 - see the LICENSE file for details.
-
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
