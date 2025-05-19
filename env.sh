@@ -6,12 +6,12 @@ echo "Setting up TEXT2GRAD environment..."
 
 # Create and activate conda environment
 if command -v conda &> /dev/null; then
-    echo "Setting up conda environment 'ppo'..."
-    conda create -n ppo python=3.10 -y || { echo "Failed to create conda environment"; exit 1; }
+    echo "Setting up conda environment 'text2grad'..."
+    conda create -n text2grad python=3.10 -y || { echo "Failed to create conda environment"; exit 1; }
     
     # Handle conda activation in script
     eval "$(conda shell.bash hook)"
-    conda activate ppo || { echo "Failed to activate conda environment"; exit 1; }
+    conda activate text2grad || { echo "Failed to activate conda environment"; exit 1; }
 else
     echo "Conda not found. Please install Miniconda or Anaconda first."
     exit 1
