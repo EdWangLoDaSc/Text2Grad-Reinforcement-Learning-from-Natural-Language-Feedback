@@ -44,6 +44,12 @@ cd Text2Grad-Reinforcement-Learning-from-Natural-Language-Feedback
 bash env.sh
 ```
 
+## Setting up OpenAI API Key
+```bash
+# Set your OpenAI API key as an environment variable
+export OPENAI_API_KEY="your_api_key"
+```
+
 ## Datasets
 
 We utilize the following open-source datasets in our research:
