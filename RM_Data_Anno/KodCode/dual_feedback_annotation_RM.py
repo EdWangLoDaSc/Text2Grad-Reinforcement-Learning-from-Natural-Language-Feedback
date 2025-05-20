@@ -1,6 +1,6 @@
 from openai import OpenAI
 import json
-from tqdm import tqdm  # For progress bar
+from tqdm import tqdm  
 import time
 from typing import Dict, Any, List, Optional
 import asyncio
@@ -166,7 +166,6 @@ def process_data(input_filepath: str, output_filepath: str, batch_size: int = 5)
             except IOError as e:
                 print(f"\nError: Could not write temporary output file to {temp_output_filepath}. Error: {e}")
 
-    # Save final results
     print(f"Saving final augmented data ({len(processed_data)} items) to: {output_filepath}")
     try:
         with open(output_filepath, 'w', encoding='utf-8') as f:
