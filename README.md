@@ -8,7 +8,7 @@ Traditional RLHF uses coarse scalar rewards, masking detailed feedback and leadi
 
 ## Pipeline Overview
 
-![Text2Grad Pipeline](Pipeline_of_Text2Grad.png)
+![Text2Grad Pipeline](pipeline_of_text2grad.png)
 
 *Figure: The Text2Grad framework pipeline showing the flow from natural language feedback to gradient-based model optimization*
 
