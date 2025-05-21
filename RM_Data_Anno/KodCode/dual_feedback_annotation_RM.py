@@ -1,6 +1,6 @@
 from openai import OpenAI
 import json
-from tqdm import tqdm  # For progress bar
+from tqdm import tqdm  
 import time
 from typing import Dict, Any, List, Optional
 import asyncio
@@ -137,8 +137,18 @@ def process_data(input_filepath: str, output_filepath: str, batch_size: int = 5)
             with open(temp_output_filepath, 'w', encoding='utf-8') as f_temp:
                 json.dump(processed_data, f_temp, ensure_ascii=False, indent=4)
 
+<<<<<<< HEAD
     with open(output_filepath, 'w', encoding='utf-8') as f:
         json.dump(processed_data, f, ensure_ascii=False, indent=4)
+=======
+    print(f"Saving final augmented data ({len(processed_data)} items) to: {output_filepath}")
+    try:
+        with open(output_filepath, 'w', encoding='utf-8') as f:
+            json.dump(processed_data, f, ensure_ascii=False, indent=4)
+        print("Final data saved successfully.")
+    except IOError as e:
+        print(f"Error: Could not write final output file to {output_filepath}. Error: {e}")
+>>>>>>> ead124ae444d74cef272025a2c8db2ae4ceeb16c
 
 if __name__ == "__main__":
     INPUT_FILE = "./data/KodCode_RM_train.json"
