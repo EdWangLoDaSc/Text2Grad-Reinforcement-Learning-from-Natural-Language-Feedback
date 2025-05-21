@@ -176,7 +176,7 @@ with open("./rm_instruction.yaml", 'r') as file:
     instrcution_config = yaml.safe_load(file)
 
 project_name = script_args.output_dir.split("/")[-1]
-wandb.init(project='ppo_slf5k_cot_token_level', name="8b-cot-PPO-Token-kl")
+wandb.init(project=project_name, name="text2grad-slf5k")
 
 tokenizer = AutoTokenizer.from_pretrained(
     script_args.base_model_name,

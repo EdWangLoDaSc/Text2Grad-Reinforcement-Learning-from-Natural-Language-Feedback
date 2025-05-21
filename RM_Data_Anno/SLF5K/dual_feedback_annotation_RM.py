@@ -15,25 +15,18 @@ def generate_critiques(input_file, output_file, batch_size=10):
     :param output_file: Path to save the output file with critiques
     :param batch_size: Number of items to process in each batch
     """
-    # Read input data
-    print(f"Loading data from {input_file}...")
     with open(input_file, 'r', encoding='utf-8') as f:
         data = json.load(f)
 
-    # Check if data is a list or dictionary
     if isinstance(data, dict):
-        # Convert dictionary to list of items with keys
         items = []
         for key, value in data.items():
-            value['id'] = key  # Store the original key
+            value['id'] = key
             items.append(value)
         data = items
-        print(f"Converted dictionary data to list with {len(data)} items")
 
     total_items = len(data)
-    print(f"Found {total_items} items to process")
 
-    # Process in batches
     for i in tqdm(range(0, total_items, batch_size), desc="Generating critiques"):
         batch = data[i:i + batch_size]
 
@@ -41,8 +34,6 @@ def generate_critiques(input_file, output_file, batch_size=10):
             post = item.get("post", "")
             generated_summary = item.get("generated_summary", "")
 
-            # Create prompt for evaluating summary quality
-            # Create prompt for evaluating summary quality
             prompt_template = f"""Please critique the following summary of a post and provide feedback in the specified JSON format:
 
             ---
@@ -94,7 +85,6 @@ def generate_critiques(input_file, output_file, batch_size=10):
             Focus on precision: include only the most impactful phrases of the generated summary, avoiding excessive or minor details."""
 
             try:
-                # Format the prompt with the actual post and summary
                 formatted_prompt = prompt_template
 
                 gpt4_response = client.chat.completions.create(
@@ -105,27 +95,18 @@ def generate_critiques(input_file, output_file, batch_size=10):
                     top_p=0.95,
                 )
 
-                # Extract the content from the response
                 critique = gpt4_response.choices[0].message.content.strip()
-                print(f"Critique: {critique}")
-
-                # Add critique to the item
                 item["critique"] = critique
 
             except Exception as e:
-                print(f"Error generating critique: {str(e)}")
                 item["critique"] = "Error generating critique"
 
-        # Save progress after each batch
         if (i + batch_size) % 50 == 0 or (i + batch_size) >= total_items:
-            print(f"Saving progress ({i + min(batch_size, total_items - i)}/{total_items} items)...")
-
-            # If original data was a dictionary, convert back
             output_data = data
-            if 'id' in data[0]:  # Check if we converted from dict to list
+            if 'id' in data[0]:
                 output_data = {}
                 for item in data:
-                    key = item.pop('id')  # Remove and get the id
+                    key = item.pop('id')
                     output_data[key] = item
 
             with open(output_file, 'w', encoding='utf-8') as f:

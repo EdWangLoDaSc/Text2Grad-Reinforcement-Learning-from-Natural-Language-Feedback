@@ -16,7 +16,6 @@ from transformers import (
 )
 from peft import LoraConfig, get_peft_model
 
-# Initialize DeepSpeed CPU Adam
 deepspeed.ops.op_builder.CPUAdamBuilder().load()
 
 
@@ -48,14 +47,12 @@ class QACDataset(Dataset):
     def __getitem__(self, ind):
         item = self.json_data[ind]
 
-        # Extract data from the KodCode format
         question = item["question"]
         solution = item["solution"]
         code_feedback = item.get("code_feedback", "")
         wrong_code = item.get("wrong_code", [])
         improvement_code = item.get("improvement_code", [])
 
-        # Format the template
         prompt = f'''Please analyze the following programming problem and solution:
 
 Problem:
@@ -87,17 +84,14 @@ Submitted Solution:
 ```
 '''
 
-        # Format the expected answer
         answer = json.dumps({
             "code_feedback": code_feedback,
             "wrong_code": wrong_code,
             "improvement_code": improvement_code
         }, indent=2)
 
-        # Construct input format with chat template
         input_text = f"<|begin_of_text|><|start_header_id|>user<|end_header_id|>\n{prompt}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n"
 
-        # Tokenize and process
         src_tokens = self.tokenizer.tokenize(input_text)
         if len(src_tokens) > self.prompt_max_length:
             src_tokens = src_tokens[:self.prompt_max_length]
@@ -145,18 +139,14 @@ def prepare_datasets(dataset_file, train_file, valid_file, split_ratio=0.9, seed
     with open(dataset_file, "r") as f:
         full_dataset = json.load(f)
 
-    # Set random seed for reproducibility
     random.seed(seed)
 
-    # Shuffle the dataset
     random.shuffle(full_dataset)
 
-    # Split into train and test
     split_idx = int(len(full_dataset) * split_ratio)
     train_data = full_dataset[:split_idx]
     test_data = full_dataset[split_idx:]
 
-    # Save the split datasets
     with open(train_file, "w") as f:
         json.dump(train_data, f)
 
@@ -340,27 +330,19 @@ def train(config):
     Args:
         config: Dictionary containing training configuration
     """
-    # Initialize wandb
     wandb.init(project=config["project_name"], name=config["project_name"])
     
-    # Prepare datasets
     train_data, test_data = prepare_datasets(
         config["dataset_file"],
         config["train_dataset_file"],
         config["valid_dataset_file"]
     )
     
-    # Setup model and tokenizer
     tokenizer, model = setup_model_and_tokenizer(config["model_name"])
-    
-    # Apply LoRA
     model = apply_lora(model)
     
-    # Get trainable parameters
     trainable_parameters = [p for p in model.parameters() if p.requires_grad]
-    print(f"Trainable parameters: {sum(p.numel() for p in trainable_parameters)}")
     
-    # Initialize DeepSpeed
     ds_config = get_deepspeed_config(config["batch_size"])
     model_engine, optimizer, _, _ = deepspeed.initialize(
         model=model,
@@ -368,7 +350,6 @@ def train(config):
         config=ds_config
     )
     
-    # Create datasets and dataloaders
     train_dataset = QACDataset(
         config["train_dataset_file"], 
         tokenizer=tokenizer, 
@@ -385,47 +366,31 @@ def train(config):
     )
     valid_dataloader = DataLoader(valid_dataset, batch_size=config["batch_size"], shuffle=False)
     
-    # Training loop
     for epoch in range(config["epochs"]):
         model_engine.train()
         for step, batch in tqdm(enumerate(train_dataloader), total=len(train_dataloader)):
-            # Print first step prompt in first epoch
-            if epoch == 0 and step == 0:
-                sample_input_ids = batch["input_ids"][0].cpu().numpy()
-                decoded_text = tokenizer.decode(sample_input_ids, skip_special_tokens=False)
-                print("\n\n===== FIRST PROMPT SAMPLE =====")
-                print(decoded_text)
-                print("===== END OF PROMPT SAMPLE =====\n\n")
-            
-            # Forward pass
             input_ids = batch["input_ids"].to(model_engine.local_rank)
             attention_mask = batch["attention_mask"].to(model_engine.local_rank)
             labels = batch["labels"].to(model_engine.local_rank)
             outputs = model_engine(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
             loss = outputs.loss
             
-            # Backward pass
             model_engine.backward(loss)
             model_engine.step()
             
-            # Clear cache
             get_accelerator().empty_cache()
             
-            # Log to wandb
             wandb.log({
                 "train/loss": loss.item(),
                 "epoch": epoch,
                 "step": step
             })
             
-            # Evaluation
             if step % 400 == 0 and step > 200:
                 get_accelerator().empty_cache()
                 
-                # Evaluate on subset
                 avg_eval_loss = evaluate_model(model_engine, valid_dataloader)
                 
-                # Log evaluation metrics
                 wandb.log({
                     "eval/loss": avg_eval_loss,
                     "eval/samples": 200,
@@ -433,22 +398,13 @@ def train(config):
                     "step": step
                 })
                 
-                print(f"Epoch {epoch}, Step {step}, Loss: {loss.item()}, "
-                      f"Eval Loss (on 200 samples): {avg_eval_loss:.4f}")
-                
-                # Clear cache after evaluation
                 get_accelerator().empty_cache()
-                
-                # Return to training mode
                 model_engine.train()
-                
-                # Save checkpoint
                 save_checkpoint(model_engine, config["exp_dir"], epoch, step)
 
 
 def main():
     """Main function to run the training script."""
-    # Configuration
     config = {
         "model_name": "meta-llama/Llama-3.1-8B-Instruct",
         "dataset_file": "./data/KodCode/kodcode_RM.json",

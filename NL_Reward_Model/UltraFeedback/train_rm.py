@@ -12,7 +12,6 @@ from deepspeed.accelerator import get_accelerator
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from peft import LoraConfig, get_peft_model, TaskType
 
-# Initialize DeepSpeed CPU Adam
 deepspeed.ops.op_builder.CPUAdamBuilder().load()
 
 
@@ -36,11 +35,9 @@ class QACDataset(Dataset):
     def __getitem__(self, ind):
         item = self.json_data[ind]
 
-        # Extract prompt and response from the current data structure
         user_prompt = item["prompt"]
         assistant_response = item["response"]
 
-        # Format the template with actual content
         prompt = f'''Please critique the following response to a user input and provide feedback and word-level score list:
 
 ---
@@ -76,22 +73,18 @@ class QACDataset(Dataset):
 "poor_spans": ["phrase1", "phrase2",...]
 }}'''
 
-        # Extract critique and spans from the current data structure
         critique = item.get("critique", "")
         good_spans = item.get("good_spans", [])
         poor_spans = item.get("poor_spans", [])
 
-        # Construct input format
         input_text = f"<|begin_of_text|><|start_header_id|>user<|end_header_id|>\n{prompt}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n"
 
-        # Construct output format as a JSON critique
         answer = json.dumps({
             "textual_feedback": critique,
             "good_spans": good_spans,
             "poor_spans": poor_spans
         }, ensure_ascii=False)
 
-        # Tokenize and process
         src_tokens = self.tokenizer.tokenize(input_text)
         if len(src_tokens) > self.prompt_max_length:
             src_tokens = src_tokens[:self.prompt_max_length]
@@ -123,20 +116,17 @@ class QACDataset(Dataset):
 
 def main():
     """Main training function."""
-    # Model and data settings
     MODEL_NAME = "meta-llama/Llama-3.1-8B-Instruct"
-    dataset_file = "/cosmos/hanyang_critic/RLAIF/data/ultrafeedback/RM/train_processed_span_v3.json"
-    valid_dataset_file = "/cosmos/hanyang_critic/RLAIF/data/ultrafeedback/RM/test_processed_span_v3.json"
+    dataset_file = "./data/ultrafeedback/RM/train_processed_span_v3.json"
+    valid_dataset_file = "./data/ultrafeedback/RM/test_processed_span_v3.json"
     BATCH_SIZE = 1
     EPOCHS = 3
     prompt_max_length = 950
     max_length = 1250
-    exp = "ckpt/llama31-8B-span2span-v2"
+    exp = "ckpt/llama31-8B-text2grad-rm-ultrafeedback"
 
-    # Create experiment directory if it doesn't exist
     os.makedirs(exp, exist_ok=True)
 
-    # Load tokenizer and model
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
     if not tokenizer.pad_token:
         tokenizer.pad_token = tokenizer.eos_token
@@ -146,19 +136,18 @@ def main():
     model = AutoModelForCausalLM.from_pretrained(MODEL_NAME)
     model.pad_token_id = tokenizer.eos_token_id
     
-    # Apply LoRA for efficient fine-tuning
     lora_config = LoraConfig(
-        r=16,  # LoRA rank, typically 8, 16, 32, etc. Lower values save parameters
-        lora_alpha=32,  # Scaling factor, controls LoRA's contribution to the original model
-        target_modules=["q_proj", "v_proj"],  # Target modules for LoRA (attention layers)
-        lora_dropout=0.1,  # Dropout rate to prevent overfitting
-        bias="none",  # Don't adjust bias
+        r=16,
+        lora_alpha=32,
+        target_modules=["q_proj", "v_proj"],
+        lora_dropout=0.1,
+        bias="none",
         task_type="CAUSAL_LM"
     )
+
     model = get_peft_model(model, lora_config)
     print("LoRA layers have been added.")
 
-    # DeepSpeed configuration
     ds_config = {
         "fp16": {
             "enabled": True,
@@ -170,7 +159,7 @@ def main():
         "optimizer": {
             "type": "AdamW",
             "params": {
-                "lr": 1e-5,  # Initial learning rate
+                "lr": 1e-5,  
                 "betas": [0.9, 0.999],
                 "eps": 1e-8,
                 "weight_decay": 3e-7
@@ -201,18 +190,15 @@ def main():
         "wall_clock_breakdown": False
     }
 
-    # Count trainable parameters
     trainable_parameters = [p for p in model.parameters() if p.requires_grad]
     print(f"Trainable parameters: {sum(p.numel() for p in trainable_parameters)}")
     
-    # Initialize DeepSpeed
     model_engine, optimizer, _, _ = deepspeed.initialize(
         model=model,
         model_parameters=trainable_parameters,
         config=ds_config
     )
 
-    # Load datasets
     train_dataset = QACDataset(dataset_file, tokenizer=tokenizer, prompt_max_length=prompt_max_length,
                                max_length=max_length)
     train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
@@ -220,15 +206,12 @@ def main():
                                max_length=max_length)
     valid_dataloader = DataLoader(valid_dataset, batch_size=BATCH_SIZE, shuffle=False)
 
-    # Initialize wandb
     project_name = "UltraFeedback-RM"
     wandb.init(project=project_name, name=project_name)
     
-    # Training loop
     for epoch in range(EPOCHS):
         model_engine.train()
         for step, batch in tqdm(enumerate(train_dataloader), total=len(train_dataloader)):
-            # Print first step prompt in first epoch
             if epoch == 0 and step == 0:
                 sample_input_ids = batch["input_ids"][0].cpu().numpy()
                 decoded_text = tokenizer.decode(sample_input_ids, skip_special_tokens=False)
@@ -236,46 +219,37 @@ def main():
                 print(decoded_text)
                 print("===== END OF PROMPT SAMPLE =====\n\n")
 
-            # Forward pass
             input_ids = batch["input_ids"].to(model_engine.local_rank)
             attention_mask = batch["attention_mask"].to(model_engine.local_rank)
             labels = batch["labels"].to(model_engine.local_rank)
             outputs = model_engine(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
             loss = outputs.loss
             
-            # Backward pass and optimization
             model_engine.backward(loss)
             model_engine.step()
 
-            # Clear GPU cache
             get_accelerator().empty_cache()
 
-            # Log metrics
             wandb.log({
                 "train/loss": loss.item(),
             })
 
-            # Evaluation
             if step % 400 == 0 and step > 1000:
                 get_accelerator().empty_cache()
                 eval_losses = []
 
-                # Create a fixed-size random validation dataset
                 eval_subset_size = 200
                 total_eval_samples = len(valid_dataset)
 
-                # Generate random indices
                 random_indices = torch.randperm(total_eval_samples)[:eval_subset_size]
                 eval_subset = torch.utils.data.Subset(valid_dataset, random_indices)
 
-                # Create subset dataloader
                 eval_subset_loader = DataLoader(
                     eval_subset,
                     batch_size=BATCH_SIZE,
                     shuffle=True
                 )
 
-                # Evaluation loop
                 with torch.no_grad():
                     table = defaultdict(list)
                     for eval_step, batch in tqdm(enumerate(eval_subset_loader),
@@ -289,7 +263,6 @@ def main():
                         eval_loss = outputs.loss
                         eval_losses.append(eval_loss.item())
 
-                # Calculate and log average evaluation loss
                 avg_eval_loss = sum(eval_losses) / len(eval_losses)
                 wandb.log({
                     "eval/loss": avg_eval_loss,
@@ -298,16 +271,13 @@ def main():
                 print(f"Epoch {epoch}, Step {step}, Loss: {loss.item()}, "
                       f"Eval Loss (on {eval_subset_size} samples): {avg_eval_loss:.4f}")
 
-                # Clear cache after evaluation
                 get_accelerator().empty_cache()
 
-            # Save checkpoint
             if step % 400 == 0 and step > 3000:
                 if model_engine.local_rank == 0:
                     checkpoint_dir = os.path.join(exp, f'{epoch}_{step}')
                     os.makedirs(checkpoint_dir, exist_ok=True)
                     model_engine.save_pretrained(checkpoint_dir)
-                    # Clear cache after saving model
                     get_accelerator().empty_cache()
 
 

@@ -1,12 +1,10 @@
 # Text2Grad: Reinforcement Learning from Natural Language Feedback
 
-Text2Grad is a novel approach that enables language models to learn from natural language feedback through reinforcement learning. This project implements a framework that converts textual feedback into gradient signals for model optimization.
+Text2Grad enables language models to learn from natural language feedback by converting text into gradient signals for model optimization.
 
 ## Abstract
 
-Traditional RLHF optimizes language models with coarse, scalar rewards that mask the fine-grained reasons behind success or failure, leading to slow and opaque learning. Recent work augments RL with textual critiques through prompting or reflection, improving interpretability but leaving model parameters untouched. We introduce Text2Grad, a reinforcement-learning paradigm that turns free-form textual feedback into span-level gradients. 
-
-Given human (or programmatic) critiques, Text2Grad aligns each feedback phrase with the relevant token spans, converts these alignments into differentiable reward signals, and performs gradient updates that directly refine the offending portions of the model's policy. This yields precise, feedback-conditioned adjustments instead of global nudges.
+Traditional RLHF uses coarse scalar rewards, masking detailed feedback and leading to opaque learning. Text2Grad converts free-form textual feedback into span-level gradients, aligning critiques with token spans to enable precise, targeted model improvements.
 
 ## Pipeline Overview
 
@@ -73,20 +71,20 @@ We utilize the following open-source datasets in our research:
 
 ```
 /Text2Grad-Reinforcement-Learning-from-Natural-Language-Feedback/
-├── RM_Data_Anno/                 # Reward Model Data Annotation
-│   ├── KodCode/                  # Code Generation dataset processing
-│   ├── SLF5K/                    # Summarization dataset processing
-│   └── UltraFeedback/            # Question Answering dataset processing
+├── rm_data_anno/                 # Reward Model Data Annotation
+│   ├── kodCode/                  # Code Generation dataset processing
+│   ├── slf5k/                    # Summarization dataset processing
+│   └── ultrafeedback/            # Question Answering dataset processing
 |
 ├── NL_Reward_Model/              # Natural Language Reward Model Implementation
-│   ├── KodCode/                  # Code Generation reward model
-│   ├── SLF5K/                    # Summarization reward model
-│   └── UltraFeedback/            # Question Answering reward model
+│   ├── kodcode/                  # Code Generation reward model
+│   ├── slf5k/                    # Summarization reward model
+│   └── ultrafeedback/            # Question Answering reward model
 |
 ├── NL-Gradiant-Policy-Optimization/                  # Natural Language Gradient Implementation
-│   ├── KodCode/                  # Code Generation training
-│   ├── SLF5K/                    # Summarization training
-│   └── UltraFeedback/            # Question Answering training
+│   ├── kodcode/                  # Code Generation training
+│   ├── slf5k/                    # Summarization training
+│   └── ultrafeedback/            # Question Answering training
 ```
 
 ## Usage
@@ -96,9 +94,9 @@ We utilize the following open-source datasets in our research:
 The annotation pipeline processes raw text feedback into structured training dual-feedback reward data:
 
 ```bash
-cd RM_Data_Anno/UltraFeedback
+cd rm_data_anno/ultrafeedback
 # For Question Answering tasks
-python RM_Data_Anno/UltraFeedback/dual_feedback_annotation_RM.py \
+python rm_data_anno/ultrafeedback/dual_feedback_annotation_RM.py \
     --data_path path/to/data
 ```
 
@@ -110,15 +108,15 @@ To train reward models for different tasks:
 
 ```bash
 # Code Generation Task
-cd NL_Reward_Model/KodCode
+cd nl_reward_model/kodcode
 bash deepspeed_train_kodcode.sh
 
 # Summarization Task
-cd NL_Reward_Model/SLF5K
+cd nl_reward_model/slf5k
 bash deepspeed_train_slf5k.sh
 
 # Question Answering Task
-cd NL_Reward_Model/UltraFeedback
+cd nl_reward_model/ultrafeedback
 bash deepspeed_train_ultrafeedback.sh
 ```
 
@@ -128,7 +126,7 @@ Each dataset directory contains an `Evaluation` folder with scripts for model ev
 
 ```bash
 # Step 1: Navigate to evaluation directory
-cd NL_Reward_Model/KodCode/Evaluation
+cd nl_reward_model/kodcode/evaluation
 
 # Step 2: Merge LoRA weights with base model
 python 1_merge_lora.py \
@@ -169,15 +167,15 @@ To train a model using Text2Grad:
 
 ```bash
 # For Code Generation
-cd NL-Gradiant/KodCode
+cd nl_gradiant_policy_optimization/kodcode
 bash train_kodcode.sh
 
 # For Question Answering
-cd NL-Gradiant/UltraFeedback
+cd nl_gradiant_policy_optimization/ultrafeedback
 bash train_ultrafeedback.sh
 
 # For Summarization
-cd NL-Gradiant/SLF5K
+cd nl_gradiant_policy_optimization/slf5k
 bash train_slf5k.sh
 ```
 
@@ -213,66 +211,3 @@ Evaluation is conducted using multiple benchmarks:
 - [AlpacaEval 2.0](https://github.com/tatsu-lab/alpaca_eval): Comprehensive LLM evaluation suite
 
 > **Note**: All evaluations are performed using standardized metrics and publicly available benchmarks to ensure reproducibility and fair comparison.
-
-## Citation
-
-If you use Text2Grad in your research, please cite:
-
-```bibtex
-@inproceedings{wang2025text2grad,
-    title={Text2Grad: Reinforcement Learning from Natural Language Feedback},
-    author={Wang, Hanyang and Wang, Lu and Zhang, Chaoyun and Mao, Tianjun and Qin, Si and Lin, Qingwei and Zhang, Dongmei},
-    booktitle={Advances in Neural Information Processing Systems},
-    year={2025}
-}
-```
-
-### Additional References
-
-For the evaluation frameworks and methods used in this work, please cite:
-
-```bibtex
-@inproceedings{evalplus,
-    title = {Is Your Code Generated by Chat{GPT} Really Correct? Rigorous Evaluation of Large Language Models for Code Generation},
-    author = {Liu, Jiawei and Xia, Chunqiu Steven and Wang, Yuyao and Zhang, Lingming},
-    booktitle = {Thirty-seventh Conference on Neural Information Processing Systems},
-    year = {2023},
-    url = {https://openreview.net/forum?id=1qvx610Cu7}
-}
-
-@misc{alpaca_eval,
-    author = {Xuechen Li and Tianyi Zhang and Yann Dubois and Rohan Taori and Ishaan Gulrajani and Carlos Guestrin and Percy Liang and Tatsunori B. Hashimoto},
-    title = {AlpacaEval: An Automatic Evaluator of Instruction-following Models},
-    year = {2023},
-    month = {5},
-    publisher = {GitHub},
-    journal = {GitHub repository},
-    howpublished = {\url{https://github.com/tatsu-lab/alpaca_eval}}
-}
-
-@article{dubois2024length,
-    title = {Length-Controlled AlpacaEval: A Simple Way to Debias Automatic Evaluators},
-    author = {Dubois, Yann and Galambosi, Bal{\'a}zs and Liang, Percy and Hashimoto, Tatsunori B},
-    journal = {arXiv preprint arXiv:2404.04475},
-    year = {2024}
-}
-
-@misc{dubois2023alpacafarm,
-    title = {AlpacaFarm: A Simulation Framework for Methods that Learn from Human Feedback}, 
-    author = {Yann Dubois and Xuechen Li and Rohan Taori and Tianyi Zhang and Ishaan Gulrajani and Jimmy Ba and Carlos Guestrin and Percy Liang and Tatsunori B. Hashimoto},
-    year = {2023},
-    eprint = {2305.14387},
-    archivePrefix = {arXiv},
-    primaryClass = {cs.LG}
-}
-```
-
-## Acknowledgments
-
-- Thanks to all contributors who have helped with the development of Text2Grad
-- Special thanks to the open-source community for providing valuable resources and tools
-- We appreciate the authors of EvalPlus, AlpacaEval, and other evaluation frameworks for making their code publicly available
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.

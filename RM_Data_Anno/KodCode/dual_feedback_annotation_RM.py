@@ -78,21 +78,16 @@ async def get_analysis_with_retry(prompt: str) -> Optional[Dict]:
         )
         analysis_str = response.choices[0].message.content.strip()
         
-        # Initialize json_str variable
         json_str = ""
         
-        # Clean response text, extract JSON part
         if "```json" in analysis_str:
-            # If response is in markdown code block
             json_str = analysis_str.split("```json")[-1].split("```")[0].strip()
         else:
-            # Otherwise use the entire response
             json_str = analysis_str
 
         try:
             analysis_json = json.loads(json_str)
         except json.JSONDecodeError:
-            # Try to clean common formatting issues
             json_str = json_str.replace('\n', '').replace('\r', '').strip()
             analysis_json = json.loads(json_str)
 
@@ -101,9 +96,7 @@ async def get_analysis_with_retry(prompt: str) -> Optional[Dict]:
 
         return analysis_json
     except Exception as e:
-        print(f"Error in get_analysis_with_retry: {e}")
-        print(f"Raw response: {analysis_str if 'analysis_str' in locals() else 'No response'}")  # Print raw response for debugging
-        raise  # This will trigger retry
+        raise
 
 async def process_example(example: Dict[str, Any]) -> Dict[str, Any]:
     """Process a single example asynchronously"""
@@ -124,22 +117,10 @@ def process_data(input_filepath: str, output_filepath: str, batch_size: int = 5)
     Loads data from a single JSON file, processes in batches concurrently,
     and saves the augmented data with periodic temporary saves.
     """
-    print(f"Loading data from: {input_filepath}")
-    try:
-        with open(input_filepath, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-            if not isinstance(data, list):
-                data = [data]  # Convert single object to list if necessary
-        print(f"Successfully loaded {len(data)} items.")
-    except FileNotFoundError:
-        print(f"Error: Input file not found at {input_filepath}")
-        return
-    except json.JSONDecodeError as e:
-        print(f"Error decoding JSON: {e}")
-        return
-    except Exception as e:
-        print(f"Error reading file {input_filepath}: {e}")
-        return
+    with open(input_filepath, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+        if not isinstance(data, list):
+            data = [data]
 
     processed_data: List[Dict[str, Any]] = []
     save_interval = 2000
@@ -147,33 +128,17 @@ def process_data(input_filepath: str, output_filepath: str, batch_size: int = 5)
     if temp_output_filepath == output_filepath:
         temp_output_filepath += "_temp"
 
-    # Process data in batches
-    print("Starting analysis process...")
     for i in tqdm(range(0, len(data), batch_size), desc="Processing batches"):
         batch = data[i:i + batch_size]
-
-        # Process batch concurrently
         batch_results = asyncio.run(process_batch(batch))
         processed_data.extend(batch_results)
 
-        # Save intermediate results
         if (i + batch_size) % save_interval == 0 and i > 0:
-            print(f"\nSaving intermediate results ({len(processed_data)} items) to: {temp_output_filepath}")
-            try:
-                with open(temp_output_filepath, 'w', encoding='utf-8') as f_temp:
-                    json.dump(processed_data, f_temp, ensure_ascii=False, indent=4)
-                print(f"Intermediate data saved successfully to {temp_output_filepath}.")
-            except IOError as e:
-                print(f"\nError: Could not write temporary output file to {temp_output_filepath}. Error: {e}")
+            with open(temp_output_filepath, 'w', encoding='utf-8') as f_temp:
+                json.dump(processed_data, f_temp, ensure_ascii=False, indent=4)
 
-    # Save final results
-    print(f"Saving final augmented data ({len(processed_data)} items) to: {output_filepath}")
-    try:
-        with open(output_filepath, 'w', encoding='utf-8') as f:
-            json.dump(processed_data, f, ensure_ascii=False, indent=4)
-        print("Final data saved successfully.")
-    except IOError as e:
-        print(f"Error: Could not write final output file to {output_filepath}. Error: {e}")
+    with open(output_filepath, 'w', encoding='utf-8') as f:
+        json.dump(processed_data, f, ensure_ascii=False, indent=4)
 
 if __name__ == "__main__":
     INPUT_FILE = "./data/KodCode_RM_train.json"

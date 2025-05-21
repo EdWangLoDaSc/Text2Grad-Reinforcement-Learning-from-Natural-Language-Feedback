@@ -175,7 +175,7 @@ config = PPOConfig(
 )
 
 project_name = script_args.output_dir.split("/")[-1]
-wandb.init(project='ppo_slf5k_cot_token_level_llama8b', name="8b-cot-PPO-Token-kl")
+wandb.init(project=project_name, name="text2grad-ultrafeedback")
 
 tokenizer = AutoTokenizer.from_pretrained(
     script_args.base_model_name,
@@ -272,8 +272,6 @@ if script_args.base_model_adapter_model:
             checkpoint_path = script_args.base_model_adapter_model
             path_parts = checkpoint_path.split('/')[-1].split('_')
 
-
-            # 提取epoch和step
             cur_epoch = int(path_parts[path_parts.index('epoch') + 1])
             cur_step = int(path_parts[path_parts.index('step') + 1])
 
@@ -584,17 +582,12 @@ def check_spans_in_response(response, good_spans, poor_spans, fuzzy_threshold=0.
     if not response:
         return False, [], {}
 
-    # Clean spans
     good_spans = clean_spans(good_spans)
     poor_spans = clean_spans(poor_spans)
 
-    # Track unmatched spans
     unmatched_spans = []
-
-    # Track successfully matched spans and their positions
     matched_spans = {}
 
-    # Process good spans
     for span in good_spans:
         try:
             if not span or len(span.strip()) == 0:
@@ -603,9 +596,7 @@ def check_spans_in_response(response, good_spans, poor_spans, fuzzy_threshold=0.
             span_start = response.find(span)
             span_end = -1
 
-            # If exact match fails, try fuzzy matching
             if span_start < 0:
-                # Try different thresholds
                 thresholds = [fuzzy_threshold, fuzzy_threshold - 0.1, fuzzy_threshold - 0.2]
                 for threshold in thresholds:
                     span_start, span_end = fuzzy_find(response, span, threshold)
@@ -613,10 +604,8 @@ def check_spans_in_response(response, good_spans, poor_spans, fuzzy_threshold=0.
                         break
 
             if span_start < 0:
-                # Try matching part of the span
                 words = span.split()
                 if len(words) > 5:
-                    # Try matching the first half
                     half_point = len(words) // 2
                     front_part = ' '.join(words[:half_point])
                     front_start = response.find(front_part)
@@ -624,7 +613,6 @@ def check_spans_in_response(response, good_spans, poor_spans, fuzzy_threshold=0.
                         span_start = front_start
                         span_end = front_start + len(span)
                     else:
-                        # Try matching the second half
                         back_part = ' '.join(words[half_point:])
                         back_start = response.find(back_part)
                         if back_start >= 0:
@@ -632,30 +620,23 @@ def check_spans_in_response(response, good_spans, poor_spans, fuzzy_threshold=0.
                             span_end = back_start + len(back_part)
 
             if span_start >= 0:
-                if span_end < 0:  # If span_end is not set
+                if span_end < 0:
                     span_end = span_start + len(span)
-                matched_spans[span] = (span_start, span_end, 1)  # 1 indicates a good span
+                matched_spans[span] = (span_start, span_end, 1)
             else:
-                # Record unmatched span
                 unmatched_spans.append(f"good_span: {span}")
         except Exception as e:
-            print(f"Error processing good span: {str(e)}")
-            traceback.print_exc()
             unmatched_spans.append(f"good_span_error: {span}")
 
-    # Process poor spans
     for span in poor_spans:
         try:
             if not span or len(span.strip()) == 0:
                 continue
 
-            # Find the span in the response
             span_start = response.find(span)
             span_end = -1
 
-            # If exact match fails, try fuzzy matching
             if span_start < 0:
-                # Try different thresholds
                 thresholds = [fuzzy_threshold, fuzzy_threshold - 0.1, fuzzy_threshold - 0.2]
                 for threshold in thresholds:
                     span_start, span_end = fuzzy_find(response, span, threshold)
@@ -663,10 +644,8 @@ def check_spans_in_response(response, good_spans, poor_spans, fuzzy_threshold=0.
                         break
 
             if span_start < 0:
-                # Try matching part of the span
                 words = span.split()
                 if len(words) > 5:
-                    # Try matching the first half
                     half_point = len(words) // 2
                     front_part = ' '.join(words[:half_point])
                     front_start = response.find(front_part)
@@ -674,7 +653,6 @@ def check_spans_in_response(response, good_spans, poor_spans, fuzzy_threshold=0.
                         span_start = front_start
                         span_end = front_start + len(span)
                     else:
-                        # Try matching the second half
                         back_part = ' '.join(words[half_point:])
                         back_start = response.find(back_part)
                         if back_start >= 0:
@@ -682,20 +660,15 @@ def check_spans_in_response(response, good_spans, poor_spans, fuzzy_threshold=0.
                             span_end = back_start + len(back_part)
 
             if span_start >= 0:
-                if span_end < 0:  # If span_end is not set
+                if span_end < 0:
                     span_end = span_start + len(span)
-                matched_spans[span] = (span_start, span_end, -1)  # -1 indicates a poor span
+                matched_spans[span] = (span_start, span_end, -1)
             else:
-                # Record unmatched span
                 unmatched_spans.append(f"poor_span: {span}")
         except Exception as e:
-            print(f"Error processing poor span: {str(e)}")
-            traceback.print_exc()
             unmatched_spans.append(f"poor_span_error: {span}")
 
-    # Determine if all spans were successfully matched
     all_matched = len(unmatched_spans) == 0 and (len(good_spans) > 0 or len(poor_spans) > 0)
-
     return all_matched, unmatched_spans, matched_spans
 
 def process_response_with_spans(response, good_spans, poor_spans):
@@ -794,13 +767,11 @@ def extract_spans_from_reward_model_output(text_to_parse):
         good_spans = []
         if good_spans_match:
             spans_text = good_spans_match.group(1)
-            # Extract text within quotes as spans
             good_spans = re.findall(r'"([^"]*)"', spans_text)
 
         poor_spans = []
         if poor_spans_match:
             spans_text = poor_spans_match.group(1)
-            # Extract text within quotes as spans
             poor_spans = re.findall(r'"([^"]*)"', spans_text)
 
         return {
@@ -889,7 +860,7 @@ def load_json_from_string(text, log_details=True):
         if matches:
             if log_details:
                 print(f"Found {len(matches)} potential JSON matches")
-                for i, match in enumerate(matches[:2]):  # 只显示前两个匹配
+                for i, match in enumerate(matches[:2]): 
                     print(f"Match {i + 1} sample (first 100 chars): {match[:100]}...")
 
             for i, match in enumerate(matches):
@@ -912,7 +883,6 @@ def load_json_from_string(text, log_details=True):
             if log_details:
                 print("No JSON pattern matches found with regex")
 
-        # If regex approach fails, try direct json loading
         if log_details:
             print("Attempting direct JSON loading")
         return json.loads(text)
@@ -922,7 +892,6 @@ def load_json_from_string(text, log_details=True):
             print(f"Problematic text (first 200 chars): {text[:200]}...")
             print(f"Problematic text (last 200 chars): {text[-200:] if len(text) > 200 else text}")
 
-        # Try to extract word-score pairs directly with regex as fallback
         try:
             if log_details:
                 print("Attempting word-score extraction fallback")
@@ -954,18 +923,14 @@ def calculate_similarity(text1, text2):
     Returns:
         float: Similarity score between 0 and 1
     """
-    # Initialize ROUGE scorer
     scorer = rouge_scorer.RougeScorer(['rouge1', 'rouge2', 'rougeL'], use_stemmer=True)
 
-    # Calculate ROUGE scores
     scores = scorer.score(text1, text2)
     rouge_score = (scores['rouge1'].fmeasure + scores['rouge2'].fmeasure + scores['rougeL'].fmeasure) / 3
 
-    # Calculate sequence similarity
     seq_matcher = difflib.SequenceMatcher(None, text1, text2)
     seq_score = seq_matcher.ratio()
 
-    # Combine scores (you can adjust weights if needed)
     final_score = (rouge_score + seq_score) / 2
 
     return final_score
@@ -983,9 +948,7 @@ def evaluate_response_accuracy(response, chosen_content, rejected_content):
         float: Binary accuracy score (0 or 1)
     """
     try:
-        # Extract the assistant's response from chosen content
         if isinstance(chosen_content, list):
-            # Find the first assistant message content
             chosen_text = ""
             for msg in chosen_content:
                 if isinstance(msg, dict) and msg.get('role') == 'assistant':
@@ -997,9 +960,7 @@ def evaluate_response_accuracy(response, chosen_content, rejected_content):
         else:
             chosen_text = chosen_content
 
-        # Extract the assistant's response from rejected content
         if isinstance(rejected_content, list):
-            # Find the first assistant message content
             rejected_text = ""
             for msg in rejected_content:
                 if isinstance(msg, dict) and msg.get('role') == 'assistant':
@@ -1011,12 +972,10 @@ def evaluate_response_accuracy(response, chosen_content, rejected_content):
         else:
             rejected_text = rejected_content
 
-        # Calculate similarities only if we have valid content
         if chosen_text and rejected_text:
             chosen_similarity = calculate_similarity(response, chosen_text)
             rejected_similarity = calculate_similarity(response, rejected_text)
 
-            # Response is considered accurate if it's more similar to chosen than rejected
             return 1.0 if chosen_similarity > rejected_similarity else 0.0
         else:
             print("Warning: Missing chosen or rejected content for comparison")
@@ -1025,31 +984,25 @@ def evaluate_response_accuracy(response, chosen_content, rejected_content):
     except Exception as e:
         print(f"Error in evaluate_response_accuracy: {str(e)}")
         traceback.print_exc()
-        return 0.0  # Return 0 for failed evaluations
-
+        return 0.0  
 for epoch in range(script_args.train_epochs):
     if epoch < cur_epoch:
         continue
 
-    # Create log directory for this epoch
     epoch_log_dir = os.path.join(script_args.output_dir, f"logs/epoch_{epoch}")
     os.makedirs(epoch_log_dir, exist_ok=True)
 
     for step, batch in tqdm(enumerate(ppo_trainer.dataloader), desc=f"Epoch {epoch + 1} "):
         try:
-            # Set NCCL environment variables to avoid P2P communication issues
             os.environ["NCCL_P2P_DISABLE"] = "1"
             os.environ["NCCL_P2P_LEVEL"] = "NVL"
 
-            # Skip already processed steps
             if epoch == cur_epoch and step <= cur_step:
                 continue
 
-            # Create log directory for this step
             step_log_dir = os.path.join(epoch_log_dir, f"step_{step}")
             os.makedirs(step_log_dir, exist_ok=True)
 
-            # Generate model responses
             question_tensors = batch["input_ids"]
             response_tensors = ppo_trainer.generate(
                 batch["input_ids"],
@@ -1057,20 +1010,16 @@ for epoch in range(script_args.train_epochs):
                 **generation_kwargs,
             )
 
-            # Ensure each response tensor ends with an EOS token
             for ind in range(len(response_tensors)):
                 response_tensors[ind] = check_and_fix_tensor(response_tensors[ind], tokenizer.eos_token_id)
             
-            # Decode responses and clean up
             batch["response"] = tokenizer.batch_decode(response_tensors, skip_special_tokens=True)
             batch["response"] = [text.strip("assistant") for text in batch["response"]]
             print(batch["response"][0])
 
-            # Prepare inputs for the reward model
             input_datas = prepare_input_data(batch["query"], batch["response"])
             result = inference_reward(reward_model, input_datas)
             
-            # Initialize lists to collect data
             rewards = []
             words = []
             final_question_tensors = []
@@ -1079,7 +1028,6 @@ for epoch in range(script_args.train_epochs):
             new_questions = []
             fail = 0
 
-            # Record batch-level information
             batch_log = {
                 "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "epoch": epoch,
@@ -1090,7 +1038,6 @@ for epoch in range(script_args.train_epochs):
                 "sample_logs": []
             }
 
-            # Process each sample's reward model output
             for ind, llm_output in enumerate(result):
                 try:
                     sample_log = {
@@ -1102,7 +1049,6 @@ for epoch in range(script_args.train_epochs):
                         "status": "processing"
                     }
 
-                    # Validate output format
                     if not isinstance(llm_output, (list, tuple)) or not llm_output:
                         print(f"Warning: Invalid llm_output format at index {ind}: {type(llm_output)}")
                         sample_log["status"] = "failed"
@@ -1111,7 +1057,6 @@ for epoch in range(script_args.train_epochs):
                         fail += 1
                         continue
 
-                    # Get generated text
                     generated_text = llm_output[0].get('generated_text', '')
                     if not generated_text:
                         print(f"Warning: Empty generated_text at index {ind}")
@@ -1121,11 +1066,9 @@ for epoch in range(script_args.train_epochs):
                         fail += 1
                         continue
 
-                    # Extract the text part that needs to be parsed
                     text_to_parse = generated_text[len(input_datas[ind]):]
                     print(f"Processing output {ind}, text length: {len(text_to_parse)}")
 
-                    # Check if text length is sufficient
                     if len(text_to_parse) < 20:
                         print(f"Text too short, content: {text_to_parse}")
                         sample_log["status"] = "failed"
@@ -1134,7 +1077,6 @@ for epoch in range(script_args.train_epochs):
                         fail += 1
                         continue
 
-                    # Parse reward model output
                     parsed_result = extract_spans_from_reward_model_output(text_to_parse)
                     if not parsed_result:
                         print(f"Failed to parse reward model output for sample {ind}")
@@ -1144,14 +1086,12 @@ for epoch in range(script_args.train_epochs):
                         fail += 1
                         continue
 
-                    # Process response and spans to generate word score list
                     score_list = process_response_with_spans(
                         batch['response'][ind],
                         parsed_result['good_spans'],
                         parsed_result['poor_spans']
                     )
 
-                    # Extract rewards and words from score_list
                     if score_list:
                         word_rewards = [score for _, score in score_list]
                         word_list = [word for word, _ in score_list]
@@ -1196,36 +1136,28 @@ for epoch in range(script_args.train_epochs):
 
             print(f"Failed {fail} samples in the current step!!! Successfully processed {len(rewards)} samples")
 
-            # Check number of valid samples
             valid_samples = len(final_question_tensors)
 
-            # In multi-GPU environment, ensure all processes have enough valid samples
             if ppo_trainer.accelerator.num_processes > 1:
-                # Get valid sample count for current process
                 valid_samples_tensor = torch.tensor(valid_samples, device=ppo_trainer.accelerator.device)
 
-                # Collect valid sample counts from all processes
                 all_valid_samples = [torch.zeros_like(valid_samples_tensor) for _ in range(ppo_trainer.accelerator.num_processes)]
                 torch.distributed.all_gather(all_valid_samples, valid_samples_tensor)
 
-                # Check if any process has fewer valid samples than the threshold
                 min_valid_samples = min([count.item() for count in all_valid_samples])
 
-                if min_valid_samples < 8:  # Set minimum sample threshold to 8
+                if min_valid_samples < 8:
                     print(f"Warning: Some processes have fewer than 8 valid samples (min: {min_valid_samples}), skipping step")
                     continue
 
-            # Check for single-GPU case
             elif valid_samples < 8:
                 print(f"Warning: Too few valid samples ({valid_samples}), skipping step")
                 continue
 
-            # Update batch data
             batch["query"] = new_questions
             batch["response"] = new_responses
 
             try:
-                # Execute PPO training step
                 stats, loss_ps, loss_vs, average_rewards = ppo_trainer.step(
                     final_question_tensors,
                     final_response_tensors, 
@@ -1234,18 +1166,14 @@ for epoch in range(script_args.train_epochs):
                     mask_loss=script_args.mask_loss
                 )
 
-                # Log training metrics
                 wandb.log({"train/loss_advantage": loss_ps}, step=wandb_step)
                 wandb.log({"train/loss_value_kl": loss_vs}, step=wandb_step)
                 wandb.log({"train/average_advantages": average_rewards.item()}, step=wandb_step)
 
-                # Log detailed reward information
                 if rewards:
-                    # Calculate reward statistics
                     all_rewards = [r.tolist() for r in rewards]
                     flat_rewards = [item for sublist in all_rewards for item in sublist]
 
-                    # Log reward distribution
                     wandb.log({
                         "rewards/mean": sum(flat_rewards) / len(flat_rewards) if flat_rewards else 0,
                         "rewards/max": max(flat_rewards) if flat_rewards else 0,
@@ -1256,18 +1184,14 @@ for epoch in range(script_args.train_epochs):
                         "rewards/sample_count": len(flat_rewards)
                     }, step=wandb_step)
 
-                    # Log reward histogram
                     wandb.log({"rewards/distribution": wandb.Histogram(flat_rewards)}, step=wandb_step)
 
-                    # Log example responses with their token-level rewards
                     examples_to_log = min(3, len(rewards))
                     for i in range(examples_to_log):
-                        # Create token-level reward table
                         token_table = wandb.Table(columns=["token", "reward"])
                         for token, reward in zip(words[i], rewards[i].tolist()):
                             token_table.add_data(token, reward)
 
-                        # Log table and full text
                         wandb.log({
                             f"examples/example_{i+1}/token_rewards": token_table,
                             f"examples/example_{i+1}/query": batch["query"][i],
@@ -1275,29 +1199,23 @@ for epoch in range(script_args.train_epochs):
                             f"examples/example_{i+1}/avg_reward": sum(rewards[i].tolist()) / len(rewards[i]) if len(rewards[i]) > 0 else 0
                         }, step=wandb_step)
 
-                # Log PPO statistics
                 ppo_trainer.log_stats(wandb_step, stats, batch, rewards)
 
-                # Periodically save model
                 if step != 0 and step % script_args.save_freq == 0:
                     try:
-                        # Only save on the main process to avoid conflicts
                         if ppo_trainer.accelerator.is_main_process:
                             save_path = os.path.join(script_args.output_dir, f"epoch_{epoch}_step_{step}")
                             os.makedirs(save_path, exist_ok=True)
 
-                            # Save model
                             print(f"Saving model to {save_path}...")
                             ppo_trainer.save_pretrained(save_path)
 
-                            # Save optimizer state
                             optimizer_path = os.path.join(save_path, "optimizer.pt")
                             torch.save({
                                 'optimizer': optimizer.state_dict(),
                                 'lr_scheduler': lr_scheduler.state_dict() if lr_scheduler else None,
                             }, optimizer_path)
 
-                            # Verify saved files exist
                             expected_files = ["adapter_model.safetensors", "pytorch_model.bin", "optimizer.pt"]
                             missing_files = [f for f in expected_files if not os.path.exists(os.path.join(save_path, f))]
 
@@ -1318,7 +1236,6 @@ for epoch in range(script_args.train_epochs):
                             f.write(traceback.format_exc())
                         print(f"Save error details written to {save_error_file}")
 
-                # Periodically evaluate responses
                 if step != 0 and step % 1 == 0:
                     print("Evaluating responses with similarity comparison...")
                     eval_size = min(20, len(batch["query"]))
@@ -1327,7 +1244,6 @@ for epoch in range(script_args.train_epochs):
                     for i in range(eval_size):
                         try:
                             response = batch["response"][i]
-                            # Get chosen and rejected content
                             chosen_content = batch["response_j"][i]
                             rejected_content = batch["response_k"][i]
 
@@ -1340,7 +1256,6 @@ for epoch in range(script_args.train_epochs):
 
                     mean_accuracy = sum(accuracies) / len(accuracies) if accuracies else 0
 
-                    # Log to wandb
                     wandb.log({
                         "eval/mean_accuracy": mean_accuracy,
                         "eval/accuracies": accuracies
@@ -1348,11 +1263,9 @@ for epoch in range(script_args.train_epochs):
 
                     print(f"Similarity evaluation complete. Mean accuracy: {mean_accuracy}")
 
-                # Update wandb step counter
                 wandb_step += 1
                 
             except Exception as e:
-                # Log training step error
                 error_dir = os.path.join(script_args.output_dir, "error_logs")
                 context = {
                     "epoch": epoch,
@@ -1372,7 +1285,6 @@ for epoch in range(script_args.train_epochs):
                 continue
 
         except Exception as e:
-            # Log entire training step error
             print(f"Error in training step {step}: {str(e)}")
             traceback.print_exc()
             continue

@@ -1,18 +1,3 @@
-# coding=utf-8
-# Copyright 2025 The Microsoft Research Authors.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 import inspect
 import math
 import os
@@ -31,9 +16,7 @@ from accelerate import Accelerator
 from accelerate.utils import ProjectConfiguration, gather_object, is_deepspeed_available, DummyOptim, DummyScheduler
 from datasets import Dataset
 from huggingface_hub import whoami
-# from numpy.core.tests.examples.cython.setup import checks
 from packaging import version
-from torch.optim import Adam
 from transformers import (
     DataCollatorForLanguageModeling,
     PreTrainedTokenizer,
@@ -66,7 +49,6 @@ from trl.models import (
     unwrap_model_for_generation,
 )
 from trl.trainer import AdaptiveKLController, BaseTrainer, FixedKLController, PPOConfig, RunningMoments
-from trl import PPOTrainer, PPOConfig, AutoModelForCausalLMWithValueHead, create_reference_model
 
 if is_deepspeed_available():
     import deepspeed
@@ -119,9 +101,9 @@ outputs = model(**inputs, labels=inputs["input_ids"])
 """
 
 
-class Text2GradTrainer(BaseTrainer):
+class TEXT2GRADTrainer(BaseTrainer):
     """
-    The Text2GradTrainer uses Proximal Policy Optimization to optimise language models.
+    The TEXT2GRADTrainer uses Proximal Policy Optimization to optimise language models.
     Note, this trainer is heavily inspired by the original OpenAI learning to summarize work here:
     https://github.com/openai/summarize-from-feedback
 
@@ -344,7 +326,6 @@ class Text2GradTrainer(BaseTrainer):
         # Create DummyOptim for DeepSpeed compatibility
         print(f"Creating DummyOptim for DeepSpeed compatibility (distributed: {self.accelerator.num_processes > 1})")
         if optimizer is not None:
-            # Extract parameters from the provided optimizer
             try:
                 lr = optimizer.param_groups[0]['lr']
                 weight_decay = optimizer.param_groups[0].get('weight_decay', 0.0)
@@ -393,8 +374,6 @@ class Text2GradTrainer(BaseTrainer):
         # Initialize current_step attribute for logging
         self.current_step = 0
 
-        # ... existing code ...
-
         # Prepare with accelerator
         print("Preparing with accelerator")
         if self.lr_scheduler is not None:
@@ -419,8 +398,6 @@ class Text2GradTrainer(BaseTrainer):
                 self.optimizer,
                 self.dataloader,  # Changed from self.train_dataloader to self.dataloader
             )
-
-        # ... rest of your code ...
 
         # Add current_device attribute
         self.current_device = self.accelerator.device
@@ -471,10 +448,8 @@ class Text2GradTrainer(BaseTrainer):
     # Adapted from transformers.Trainer._set_signature_columns_if_needed
     def _set_signature_columns_if_needed(self):
         if self._signature_columns is None:
-            # Inspect model forward signature to keep only the arguments it accepts.
             signature = inspect.signature(self.model.forward)
             self._signature_columns = list(signature.parameters.keys())
-            # label => sentiment | we need query and response for logging purpose
             self._signature_columns += ["label", "query", "response"]
 
     # Adapted from transformers.Trainer._remove_unused_columns
@@ -592,7 +567,7 @@ class Text2GradTrainer(BaseTrainer):
         outputs = []
         padding_side_default = self.tokenizer.padding_side
         if not self.is_encoder_decoder:
-            self.tokenizer.padding_side = "right"  
+            self.tokenizer.padding_side = "right"  # 原来这里对自回归编码器使用的是做填充，现适应llama架构，改为右填充
 
         # in case we have fewer examples than bs
         batch_size = min(len(query_tensors), batch_size)
@@ -617,7 +592,10 @@ class Text2GradTrainer(BaseTrainer):
             for token, replacement in special_tokens.items():
                 text = text.replace(token, replacement)
 
+            # Clean up extra whitespace
+            text = ' '.join(text.split())
 
+            # Re-encode cleaned text
             return self.tokenizer.encode(text, return_tensors='pt')[0]
 
         for i in range(0, len(query_tensors), batch_size):
@@ -657,7 +635,6 @@ class Text2GradTrainer(BaseTrainer):
                             first_eos_pos = eos_positions[0].item()
                             output = output[:first_eos_pos]  # Remove EOS and everything after
 
-                            # Only print if output is not empty
                             if len(output) > 0:
                                 clean_text = self.tokenizer.decode(output)
                                 if clean_text.strip():  # Only print if there's actual content
@@ -732,7 +709,6 @@ class Text2GradTrainer(BaseTrainer):
         Run a PPO optimisation step given a list of queries, model responses, and rewards.
         """
         try:
-            # Clear CUDA cache at the beginning of step
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
@@ -742,12 +718,10 @@ class Text2GradTrainer(BaseTrainer):
             queries, responses, scores, response_masks = self._step_safety_checker(
                 bs, queries, responses, scores, response_masks
             )
-            if self.accelerator.is_main_process:
-                print(f'现在打印的是：输入到step处理之后的tken：{responses[0]}')
+
             scores = [score.to(self.current_device) for score in scores]
 
             if self.config.use_score_scaling:
-                # Score scaling
                 scores_mean, scores_std = self.running.update(scores)
                 tensor_to_kwargs = dict(dtype=scores.dtype, device=scores.device)
                 score_scaling_factor = self.running.std.to(**tensor_to_kwargs) + torch.finfo(scores.dtype).eps
@@ -768,7 +742,6 @@ class Text2GradTrainer(BaseTrainer):
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
 
-            # if we want to push best model to the hub
             if hasattr(self, "highest_reward"):
                 if self.compare_step % self.config.compare_steps == 0:
                     curr_mean_reward = scores.mean()
@@ -828,7 +801,6 @@ class Text2GradTrainer(BaseTrainer):
                     return_logits=full_kl_penalty,
                 )
 
-                # Clear cache after first forward pass
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
 
@@ -841,7 +813,6 @@ class Text2GradTrainer(BaseTrainer):
                         return_logits=full_kl_penalty,
                     )
 
-                # Clear cache after second forward pass
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
 
@@ -854,8 +825,6 @@ class Text2GradTrainer(BaseTrainer):
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
-
-            # Continue with the rest of the code
             with torch.no_grad():
                 t = time.time()
                 if full_kl_penalty:
@@ -866,7 +835,6 @@ class Text2GradTrainer(BaseTrainer):
                         scores, active_full_logprobs, ref_full_logprobs, masks, all_tokens, words
                     )
 
-                    # Clean up unused variables
                     del active_full_logprobs, ref_full_logprobs
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
@@ -879,12 +847,10 @@ class Text2GradTrainer(BaseTrainer):
                 values, advantages, returns = self.compute_advantages(values, rewards, masks)
                 timing["time/ppo/compute_advantages"] = time.time() - t
 
-                # Clean up rewards as it's no longer needed
                 del rewards
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
 
-            # upcast to float32 to avoid dataset issues
             batch_dict = {
                 "queries": queries,
                 "responses": responses,
@@ -915,7 +881,6 @@ class Text2GradTrainer(BaseTrainer):
                 torch.cuda.empty_cache()
 
             batch_dict.update(model_inputs)
-            # We don't need model_inputs anymore as it's now in batch_dict
             del model_inputs
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
@@ -1020,22 +985,17 @@ class Text2GradTrainer(BaseTrainer):
                         loss_ps.append(loss_p)
                         loss_vs.append(loss_v)
 
-                    # Clear cache after each backward batch
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
 
-                # typically, early stopping is done at the epoch level
                 if self.config.early_stopping:
                     policykl = train_stats["policy/policykl"]
                     early_stop = self._early_stop(policykl)
                     if early_stop:
                         break
 
-            # Save a copy of advantages for the final calculation
             advantages_for_return = batch_dict["advantages"].clone()
 
-            # Clean up batch_dict as it's no longer needed
-            # Save references to needed variables before deleting batch_dict
             saved_logprobs = batch_dict.get("logprobs", None)
             saved_ref_logprobs = batch_dict.get("ref_logprobs", None)
             del batch_dict
@@ -1052,7 +1012,6 @@ class Text2GradTrainer(BaseTrainer):
                 torch.cuda.empty_cache()
 
             train_stats["skip_word_percentage"] = float(sum(total_skip_words_nums) / len(total_skip_words_nums))
-            # reshape advantages/ratios such that they are not averaged.
             train_stats["policy/advantages"] = torch.flatten(train_stats["policy/advantages"]).unsqueeze(0)
             train_stats["policy/advantages"] = torch.nan_to_num(train_stats["policy/advantages"], WANDB_PADDING)
             train_stats["policy/ratio"] = torch.flatten(train_stats["policy/ratio"]).unsqueeze(0)
@@ -1070,25 +1029,21 @@ class Text2GradTrainer(BaseTrainer):
                 kls=kls,
             )
 
-            # Clean up variables no longer needed
             del saved_logprobs, saved_ref_logprobs, non_score_reward, train_stats, masks, kls
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
-            # Gather/Reduce stats from all processes
             if self.is_distributed:
                 stats = self.gather_stats(stats)
             stats = stats_to_np(stats)
             timing["time/ppo/calc_stats"] = time.time() - t
             stats["ppo/learning_rate"] = self.optimizer.param_groups[0]["lr"]
 
-            # Update the KL control - multiply the batch_size by the number of processes
             self.kl_ctl.update(
                 stats["objective/kl"],
                 self.config.batch_size * self.accelerator.num_processes,
             )
 
-            # Log the total ppo time
             timing["time/ppo/total"] = time.time() - t0
             stats.update(timing)
 
@@ -1099,11 +1054,9 @@ class Text2GradTrainer(BaseTrainer):
             if self.lr_scheduler is not None:
                 self.lr_scheduler.step()
 
-            # Final cache clearing at the end of step
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
-            # Calculate average advantages for return
             avg_advantages = sum(sum(advantages_for_return)) / (advantages_for_return.shape[0] * advantages_for_return.shape[1])
             del advantages_for_return
             if torch.cuda.is_available():
@@ -1111,7 +1064,6 @@ class Text2GradTrainer(BaseTrainer):
 
             return stats, sum(loss_ps) / len(loss_ps), sum(loss_vs) / len(loss_vs), avg_advantages
         except Exception as e:
-            # 确保所有进程都知道发生了错误
             if self.is_distributed:
                 import torch.distributed as dist
                 dist.barrier()
@@ -1141,10 +1093,8 @@ class Text2GradTrainer(BaseTrainer):
         elif self.is_distributed:
             import torch.distributed as dist
 
-            # Wait for all processes to finish
             dist.barrier()
 
-            # all gather the policykl
             dist.all_reduce(policykl, dist.ReduceOp.SUM)
             policykl /= self.accelerator.num_processes
 
@@ -1189,7 +1139,7 @@ class Text2GradTrainer(BaseTrainer):
                 [{"input_ids": ids, "attention_mask": torch.ones_like(ids)} for ids in input_ids]
             ).to(self.current_device)
 
-        input_data.pop("labels", None)  # we don't want to compute LM losses
+        input_data.pop("labels", None)
         return input_data
 
     @PPODecorators.empty_device_cache()
@@ -1205,11 +1155,9 @@ class Text2GradTrainer(BaseTrainer):
         """
         Calculate model outputs in multiple batches.
         """
-        # Clear cache at the beginning
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-        # 此处的mask指示出有效的tokens的位置，用于后面求取lengthsampler
         bs = len(queries)
         fbs = self.config.mini_batch_size
         all_logprobs = []
@@ -1220,7 +1168,6 @@ class Text2GradTrainer(BaseTrainer):
 
         model.eval()
 
-        # 添加检查，确保bs > 0
         if bs == 0:
             raise ValueError("Empty batch received in batched_forward_pass")
 
@@ -1229,7 +1176,6 @@ class Text2GradTrainer(BaseTrainer):
             query_batch = queries[i * fbs: (i + 1) * fbs]
             response_batch = responses[i * fbs: (i + 1) * fbs]
 
-            # 检查当前批次是否为空
             if len(query_batch) == 0 or len(response_batch) == 0:
                 print(f"Warning: Empty batch at index {i}, skipping")
                 continue
@@ -1237,33 +1183,28 @@ class Text2GradTrainer(BaseTrainer):
             if response_masks is not None:
                 response_masks_batch = response_masks[i * fbs: (i + 1) * fbs]
 
-            # 运行模型前检查输入
             for k, v in input_kwargs.items():
                 if isinstance(v, torch.Tensor) and v.numel() == 0:
                     print(f"Warning: Empty tensor for {k} at batch {i}")
 
             logits, _, values = model(**input_kwargs)
 
-            # 检查logits是否为空
             if logits.numel() == 0:
                 print(f"Warning: Empty logits at batch {i}, skipping")
                 continue
 
-            # 取出logits对应的token
             token_ids = input_kwargs["input_ids"]
             token_ids_list = token_ids.tolist()
-            # 遍历每个样本的token ID序列
             for sample_token_ids in token_ids_list:
                 import re
-                # 将每个token ID转换为对应的单词或子词
                 tokens = [re.sub(r"[''‛']", "'", self.tokenizer.decode(token_id).strip()) for token_id in
                           sample_token_ids]
-                all_tokens.append(tokens)  # 得到q+a对应的tokens序列
+                all_tokens.append(tokens)  
 
-            if self.is_encoder_decoder:  # 不进入
+            if self.is_encoder_decoder: 
                 input_ids = input_kwargs["decoder_input_ids"]
                 attention_mask = input_kwargs["decoder_attention_mask"]
-            else:  # 进入
+            else:  
                 input_ids = input_kwargs["input_ids"]
                 attention_mask = input_kwargs["attention_mask"]
 
@@ -1275,6 +1216,7 @@ class Text2GradTrainer(BaseTrainer):
                 print(f"Warning: Empty logprobs at batch {i}, skipping")
                 continue
 
+            # TODO: mask stopping tokens
             for k in range(len(masks)):
                 mask = masks[k]
                 tokens = all_tokens[k]
@@ -1303,7 +1245,6 @@ class Text2GradTrainer(BaseTrainer):
 
                     for i in range(start, end):
                         if tokens[i] == '<|eot_id|>':
-                            # 找到EOS后，将end调整到EOS后一个位置
                             end = i + 1 if i < len(tokens) - 1 else i
                             break
                 masks[j, :start] = 0
@@ -1324,7 +1265,7 @@ class Text2GradTrainer(BaseTrainer):
                 del response_masks_batch
             del token_ids, token_ids_list
             # Clear cache after each batch
-            if torch.cuda.is_available() and i % 2 == 1:  
+            if torch.cuda.is_available() and i % 2 == 1:  # Every other batch to avoid too frequent clearing
                 torch.cuda.empty_cache()
 
         # 最终检查，确保列表不为空
@@ -1421,22 +1362,17 @@ class Text2GradTrainer(BaseTrainer):
             word_scores.append(word_score)
         return word_scores
 
-
     def assign_token_rewards(self, token_list, word_list, score_list):
         def is_special_char(token):
-            """检查是否为特殊字符"""
-            special_chars = ['<|eot_id|>', '<|start_header_id|>',
+            special_chars = ['.', ',', '!', '?', ';', ':', '"', "'", '<|eot_id|>', '/', '&', '<|start_header_id|>',
                              '<|end_header_id|>']
             return (token in special_chars or token.startswith('<') or
                     not any(c.isalnum() for c in token if c not in ['', ' ']))
 
-        print("\n=== Starting new matching process ===")
-        print(f"Token list: {token_list}")
-
         token_index = 0
         word_index = 0
         last_match_token_ind = 0
-        max_attempts = 6
+        max_attempts = 5
         token_score = []
         total_skip_words_num = 0
 
@@ -1444,15 +1380,15 @@ class Text2GradTrainer(BaseTrainer):
         filtered_word_list = []
         filtered_score_list = []
         for i, word in enumerate(word_list):
-            if word.strip():  # Only keep non-empty words
+            if word.strip():  
                 filtered_word_list.append(word)
                 filtered_score_list.append(score_list[i])
 
         word_list = filtered_word_list
         score_list = filtered_score_list
+
         while token_index <= len(token_list) - 1:
             if word_index >= len(word_list):
-                print(f"Reached end of word list. Filling remaining tokens with 0")
                 token_score.extend([torch.tensor(0., device=score_list[0].device)] *
                                    (len(token_list) - len(token_score)))
                 break
@@ -1462,9 +1398,6 @@ class Text2GradTrainer(BaseTrainer):
             wid_matched = -1
             attempts = 0
             initial_token_index = token_index
-
-            #print(f"\nTrying to match word: {word_list[word_index]}")
-            #print(f"Starting from token index: {token_index}")
 
             while attempts < max_attempts:
                 for i in range(1, min(10, len(token_list) - token_index)):
@@ -1476,13 +1409,13 @@ class Text2GradTrainer(BaseTrainer):
                     if len(concatenated_tokens) > len(current_word) + 2:
                         continue
 
-                    #print(f"Attempt {attempts + 1}: {actual_tokens} ({concatenated_tokens}) -> {current_word}")
+                    print(f"Attempt {attempts + 1}: {actual_tokens} ({concatenated_tokens}) -> {current_word}")
 
                     if concatenated_tokens.lower() == current_word.lower():
                         flag_matched = True
                         i_matched = i
                         wid_matched = word_index
-                        #print(f"Match found! Length: {i}")
+                        print(f"Match found! Length: {i}")
                         break
 
                 if flag_matched:
@@ -1491,12 +1424,10 @@ class Text2GradTrainer(BaseTrainer):
                     attempts += 1
                     token_index += 1
                     if token_index == len(token_list):
-                        #print("Reached end of token list")
                         break
 
                 if attempts >= max_attempts:
                     total_skip_words_num += 1
-                    print(f"Failed to match word: {word_list[word_index]} after {max_attempts} attempts")
                     word_index += 1
                     token_index = initial_token_index
                     break
@@ -1505,18 +1436,15 @@ class Text2GradTrainer(BaseTrainer):
                 # Fill unmatched tokens with 0
                 zeros_count = token_index - last_match_token_ind
                 if zeros_count > 0:
-                    #print(f"Filling {zeros_count} unmatched tokens with 0")
                     token_score.extend([torch.tensor(0., device=score_list[wid_matched].device)] * zeros_count)
 
-                # Assign scores - special characters get 0, other tokens get the word score
-                #print(f"Assigning scores for matched tokens:")
                 for j in range(i_matched):
                     current_token = token_list[token_index + j]
                     if is_special_char(current_token):
-                        #print(f"  {current_token}: 0 (special char)")
+                        print(f"  {current_token}: 0 (special char)")
                         token_score.append(torch.tensor(0., device=score_list[wid_matched].device))
                     else:
-                        #print(f"  {current_token}: {float(score_list[wid_matched])} (matched)")
+                        print(f"  {current_token}: {float(score_list[wid_matched])} (matched)")
                         token_score.append(score_list[wid_matched])
 
                 last_match_token_ind = token_index + i_matched
@@ -1526,28 +1454,15 @@ class Text2GradTrainer(BaseTrainer):
         # Pad remaining tokens with 0
         if len(token_score) != len(token_list):
             padding_count = len(token_list) - len(token_score)
-            #print(f"\nPadding final {padding_count} tokens with 0")
             token_score.extend([torch.tensor(0., device=score_list[0].device)] * padding_count)
-
-        print("\n=== Final Results ===")
-        #print(f"Total skipped words: {total_skip_words_num}")
-        #print(f"Final score length: {len(token_score)}")
-        #print(f"Scores: {[float(s) for s in token_score]}")
 
         return token_score, total_skip_words_num
 
-
     def rematch_scores(self, scores, words, all_tokens):
-        # 该函数利用从reward model处获得的word-level的得分变成token-level的score
-        # 使用嵌套的列表推导式将每个字符串转换为小写
-
-        print(f'收到的score：{scores}')
-
         for i in range(len(words)):
             words[i] = [word.lower() for word in words[i]]
 
         # process all_tokens
-        # 使用嵌套的列表推导式将每个字符串转换为小写,并覆写原来的all_tokens
         for i in range(len(all_tokens)):
             all_tokens[i] = [token.lower() for token in all_tokens[i]]
 
@@ -1558,7 +1473,6 @@ class Text2GradTrainer(BaseTrainer):
                 if (sublist[i] == '<|start_header_id|>' and
                         sublist[i + 1] == 'assistant' and
                         sublist[i + 2] == '<|end_header_id|>'):
-                    # 找到header后的第一个非空token位置
                     j = i + 3
                     while j < len(sublist) and sublist[j] == '':
                         j += 1
@@ -1583,9 +1497,7 @@ class Text2GradTrainer(BaseTrainer):
             word_list = answers_words[i]
             score_list = answers_scores[i]
 
-            # Fix: Check if score_list is empty or if it's a 0-d tensor
             if isinstance(score_list, torch.Tensor) and score_list.dim() == 0:
-                # Handle 0-dimensional tensor case
                 default_device = score_list.device
                 token_non_score = [torch.tensor(0., device=default_device)] * max(0, answer_indices_tokens[i])
                 token_score = [torch.tensor(0., device=default_device)] * len(token_list)
@@ -1596,7 +1508,6 @@ class Text2GradTrainer(BaseTrainer):
                 token_score = [torch.tensor(0., device=default_device)] * len(token_list)
                 total_skip_words_num = 0
             else:
-                # Normal case - create zero tensors with the same device as the first score
                 token_non_score = [torch.tensor(0., device=score_list[0].device)] * answer_indices_tokens[i]
                 token_score, total_skip_words_num = self.assign_token_rewards(token_list, word_list, score_list)
 
@@ -1654,7 +1565,7 @@ class Text2GradTrainer(BaseTrainer):
             # reward[last_non_masked_index] += score
             rewards.append(reward)
         return torch.stack(rewards), torch.stack(non_score_rewards), torch.stack(kls)
-
+ 
     def _kl_penalty(self, logprob: torch.FloatTensor, ref_logprob: torch.FloatTensor) -> torch.FloatTensor:
         if self.config.kl_penalty == "kl":
             return logprob - ref_logprob
@@ -1666,6 +1577,7 @@ class Text2GradTrainer(BaseTrainer):
             return 0.5 * (logprob - ref_logprob).square()
 
         if self.config.kl_penalty == "full":
+            # Flip is required due to this issue? :https://github.com/pytorch/pytorch/issues/57459
             return F.kl_div(ref_logprob, logprob, log_target=True, reduction="none").sum(-1)
 
         raise NotImplementedError
@@ -1693,9 +1605,11 @@ class Text2GradTrainer(BaseTrainer):
         advantages_reversed = []
         gen_len = rewards.shape[-1]
 
+        # 应用掩码
         values = values * mask
         rewards = rewards * mask
 
+        # 按照原始代码，先计算优势，再进行whitening
         for t in reversed(range(gen_len)):
             nextvalues = values[:, t + 1] if t < gen_len - 1 else 0.0
             delta = rewards[:, t] + self.config.gamma * nextvalues - values[:, t]
@@ -1706,11 +1620,11 @@ class Text2GradTrainer(BaseTrainer):
         advantages = torch.stack(advantages_reversed[::-1]).transpose(0, 1)
         returns = advantages + values
 
+        # 记录原始优势值的统计信息
         valid_advantages = advantages[mask.bool()]
-        # 对优势进行whitening
+
         advantages = masked_whiten(advantages, mask)
 
-        # 记录whitening后的优势值统计信息
         valid_advantages = advantages[mask.bool()]
 
         advantages = advantages.detach()
@@ -1757,10 +1671,9 @@ class Text2GradTrainer(BaseTrainer):
         vf_loss = 0.5 * masked_mean(torch.max(vf_losses1, vf_losses2), mask)
         vf_clipfrac = masked_mean(torch.gt(vf_losses2, vf_losses1).float(), mask)
 
-        #ratio = torch.exp(logprobs - old_logprobs)
 
         logprob_diff = logprobs - old_logprobs
-        logprob_diff = torch.clamp(logprob_diff, -20, 20)  # 防止exp溢出
+        logprob_diff = torch.clamp(logprob_diff, -20, 20)  
         ratio = torch.exp(logprob_diff)
 
         pg_losses = -advantages * ratio  # advantage越大，pg loss越小
@@ -1816,10 +1729,8 @@ class Text2GradTrainer(BaseTrainer):
         """
         mask = data.pop("masks")
 
-        # Remove the problematic advantages processing code
         stats = {}
 
-        # Original stats calculation code
         kls = data.pop("kls")
         kl_list = ((kls) * mask).sum(axis=-1)
         mean_kl = kl_list.mean()
@@ -1833,7 +1744,6 @@ class Text2GradTrainer(BaseTrainer):
         for i, scores in enumerate(data["scores"]):
             mask_i = mask[i]
             mask_score = [score for j, score in enumerate(scores) if j < len(mask_i) and mask_i[j] == 1]
-            #mask_score = torch.tensor(mask_score)
             mask_score = torch.tensor(mask_score, dtype=torch.float32)  # Convert to float32
 
             masked_scores.append(mask_score)
@@ -1870,7 +1780,7 @@ class Text2GradTrainer(BaseTrainer):
             stats: dict,
             batch: dict,
             rewards: List[torch.FloatTensor],
-            columns_to_log: typing.Iterable[str] = ("question", "response"),
+            columns_to_log: typing.Iterable[str] = ("query", "response"),
     ):
         """
         A function that logs all the training stats. Call it at the end of each epoch.
@@ -1978,7 +1888,6 @@ class Text2GradTrainer(BaseTrainer):
             else:
                 text.append(self.tokenizer.decode(token.item()), style="black on cyan3")
                 text.append(" ")
-        print(text)
 
     def _prepare_deepspeed(self, model: PreTrainedModelWrapper):
         deepspeed_plugin = self.accelerator.state.deepspeed_plugin

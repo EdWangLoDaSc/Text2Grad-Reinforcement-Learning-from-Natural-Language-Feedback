@@ -24,7 +24,7 @@ pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https
 # Install required packages
 echo "Installing required packages..."
 pip install trl==0.11.3
-pip install scikit-learn
+pip install scikit-learn pandas
 pip install peft --no-dependencies
 pip install transformers
 pip install numpy==1.26.4

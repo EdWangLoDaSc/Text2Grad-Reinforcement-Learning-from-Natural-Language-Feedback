@@ -1,4 +1,3 @@
-
 import wandb
 import os
 import torch
@@ -60,10 +59,6 @@ S = '''You are a human annotator specializing in linguistics. Evaluate the gener
 
 
 deepspeed.ops.op_builder.CPUAdamBuilder().load()
-########################### metric ################################
-from bert_score import score
-from rouge import Rouge
-import jieba
 
 
 class QACDataset(Dataset):
@@ -84,25 +79,21 @@ class QACDataset(Dataset):
     def __getitem__(self, ind):
         value = self.json_data[ind]
 
-        # Clean up data extraction
         feedback = value.get("textual_feedback", "")
         word_score_list = value.get("word_score_list", [])
         first_summary = value.get("generated_summary", "")
         summary_prompt = value.get("post", "")
 
-        # Ensure proper escaping of quotes in JSON strings
         summary_prompt = summary_prompt.replace('"', '\\"')
         first_summary = first_summary.replace('"', '\\"')
         feedback = feedback.replace('"', '\\"')
 
-        # Format input and output properly
         question = f"""# User Input
 {{
   "original_post": "{summary_prompt}",
   "generated_summary": "{first_summary}"
 }}
 """
-        # Fix JSON formatting in the answer
         answer = f'''
 {{
   "textual_feedback": "{feedback}",
@@ -110,7 +101,7 @@ class QACDataset(Dataset):
 }}'''
 
         input_text = f"<|begin_of_text|><|start_header_id|>user<|end_header_id|>\n{self.rules}\n{question}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n"
-        src_tokens = self.tokenizer.tokenize(input_text)  # 不添加bos
+        src_tokens = self.tokenizer.tokenize(input_text)  
         if len(src_tokens) > self.prompt_max_length:
             src_tokens = src_tokens[:self.prompt_max_length]
 
@@ -118,7 +109,7 @@ class QACDataset(Dataset):
         if len(tgt_tokens) > self.answer_max_length:
             tgt_tokens = tgt_tokens[:self.answer_max_length]
 
-        tokens = src_tokens + tgt_tokens + [self.eos_token]  # 添加eos
+        tokens = src_tokens + tgt_tokens + [self.eos_token]  
 
         assert len(tokens) <= self.max_length
 
@@ -140,17 +131,15 @@ class QACDataset(Dataset):
         }
 
 
-# 设置模型和数据
 MODEL_NAME = "meta-llama/Llama-3.1-8B-Instruct"
-dataset_file = "/cosmos/hanyang_critic/RLAIF/ppo_token/rm_train/SLF5K_label/train_critique_processed.json"
-valid_dataset_file = "/cosmos/hanyang_critic/RLAIF/ppo_token/rm_train/SLF5K_label/validation_critique_processed.json"
+dataset_file = "./data/SLF5K_label/train_critique_processed.json"
+valid_dataset_file = "./data/SLF5K_label/validation_critique_processed.json"
 BATCH_SIZE = 1
 EPOCHS = 3
 prompt_max_length = 900
 max_length = 1400
 exp = "ckpt/llama31-8B-span-v2"
 
-# 加载模型和分词器
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 if not tokenizer.pad_token:
     tokenizer.pad_token = tokenizer.eos_token
@@ -158,19 +147,17 @@ if not tokenizer.pad_token:
 tokenizer.padding_side = "right"
 model = AutoModelForCausalLM.from_pretrained(MODEL_NAME)
 model.pad_token_id = tokenizer.eos_token_id
-# 使用lora mode进行训练
+
 lora_config = LoraConfig(
-    r=16,  # LoRA的秩，通常取8、16、32等，值越小越节省参数
-    lora_alpha=32,  # 缩放因子，控制LoRA对原模型的贡献
-    target_modules=["q_proj", "v_proj"],  # 应用LoRA的目标模块（这里是注意力层）
-    lora_dropout=0.05,  # dropout率，防止过拟合
-    bias="none",  # 不调整偏置
-    task_type="CAUSAL_LM"  # 任务类型，因果语言建模
+    r=16,
+    lora_alpha=32,
+    target_modules=["q_proj", "v_proj"],
+    lora_dropout=0.05,
+    bias="none",
+    task_type="CAUSAL_LM"
 )
 model = get_peft_model(model, lora_config)
-print("LoRA layers have been added.")
 
-# Deepspeed
 ds_config = {
     "fp16": {
         "enabled": True,
@@ -182,7 +169,7 @@ ds_config = {
     "optimizer": {
         "type": "Adam",
         "params": {
-            "lr": 1e-5,  # 初始学习率
+            "lr": 1e-5,  
             "betas": [0.9, 0.999],
             "eps": 1e-8,
             "weight_decay": 3e-7
@@ -223,7 +210,6 @@ model_engine, optimizer, _, _ = deepspeed.initialize(
 )
 
 
-# load data
 train_dataset = QACDataset(dataset_file, tokenizer=tokenizer, prompt_max_length=prompt_max_length,
                            max_length=max_length)
 train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
@@ -232,7 +218,6 @@ valid_dataset = QACDataset(valid_dataset_file, tokenizer=tokenizer, prompt_max_l
 valid_dataloader = DataLoader(valid_dataset, batch_size=BATCH_SIZE, shuffle=False)
 
 
-# init wandb
 project_name = "slf5k_llama_8b_cot-json"
 wandb.init(project=project_name, name=project_name)
 fail_case = 0
@@ -247,7 +232,6 @@ for epoch in range(EPOCHS):
         model_engine.backward(loss)
         model_engine.step()
 
-        # Add learning rate logging
         current_lr = optimizer.param_groups[0]['lr']
         wandb.log({
             "train/loss": loss.item(),
@@ -257,18 +241,15 @@ for epoch in range(EPOCHS):
         # evaluation
         if step % 300 == 0 and step != 0:
             torch.cuda.empty_cache()
-            model_engine.eval()  # Set model to evaluation mode
+            model_engine.eval()  
             eval_losses = []
 
-            # 创建一个固定大小的随机验证数据集
             eval_subset_size = 500
             total_eval_samples = len(valid_dataset)
 
-            # 生成随机索引
             random_indices = torch.randperm(total_eval_samples)[:eval_subset_size]
             eval_subset = torch.utils.data.Subset(valid_dataset, random_indices)
 
-            # 创建子集的dataloader
             eval_subset_loader = DataLoader(
                 eval_subset,
                 batch_size=BATCH_SIZE,
@@ -298,9 +279,8 @@ for epoch in range(EPOCHS):
             print(f"Epoch {epoch}, Step {step}, Loss: {loss.item()}, "
                   f"Eval Loss (on {eval_subset_size} samples): {avg_eval_loss:.4f}")
 
-            model_engine.train()  # Set model back to training mode
+            model_engine.train() 
             
-        # Checkpoint saving with better error handling
         if step % 400 == 0 and step != 0:
             if model_engine.local_rank == 0:
                 checkpoint_dir = os.path.join(exp, f'{epoch}_{step}')

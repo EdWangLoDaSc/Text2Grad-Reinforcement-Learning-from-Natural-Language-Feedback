@@ -10,7 +10,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 # Define paths
-rm_path = "/cosmos/hanyang_critic/RLAIF/data/ultrafeedback/RM"
+rm_path = "./data/ultrafeedback/RM"
 
 # Function to load JSON data
 def load_json(filepath):
@@ -30,16 +30,13 @@ def save_json(data, filepath):
     except Exception as e:
         logger.error(f"Error saving JSON to {filepath}: {e}")
 
-# Function to perform critique and annotate spans for general Q&A
 def critique_and_annotate(data, sample_size=None):
-    # If sample_size is specified, randomly sample the data
     if sample_size is not None:
         data = random.sample(data, min(sample_size, len(data)))
     
     results = []
     for i, entry in enumerate(data):
         logger.info(f"Processing entry {i+1}/{len(data)}")
-        # Format the prompt for critique
         formatted_prompt = f"""<CritiquePrompt>
     <Instructions>Critique a response to a user input and provide feedback in JSON format:</Instructions>
 
@@ -88,7 +85,6 @@ def critique_and_annotate(data, sample_size=None):
 </CritiquePrompt>"""
 
         logger.info('Finished creating prompt')
-        # Get critique and annotations from GPT-4
         try:
             client = OpenAI()
             gpt4_response = client.chat.completions.create(
@@ -99,7 +95,6 @@ def critique_and_annotate(data, sample_size=None):
                 top_p=0.95,
             )
             
-            # Parse GPT-4 response
             max_retries = 3
             for attempt in range(max_retries):
                 try:
@@ -111,7 +106,7 @@ def critique_and_annotate(data, sample_size=None):
                         'good_spans': critique_data.get('good_spans', []),
                         'poor_spans': critique_data.get('poor_spans', [])
                     }
-                    break  # Exit loop if parsing is successful
+                    break  
                 except (json.JSONDecodeError, KeyError, TypeError, AttributeError) as e:
                     if attempt < max_retries - 1:
                         logger.warning(f"Retrying JSON parse (attempt {attempt + 1}) due to error: {e}")
@@ -128,11 +123,9 @@ def critique_and_annotate(data, sample_size=None):
     
     return results
 
-# Load train and train data
 train_data = load_json(f"{rm_path}/train_sep.json")
 logger.info('start')
 
-# Function to load progress
 def load_progress(progress_file):
     if os.path.exists(progress_file):
         try:

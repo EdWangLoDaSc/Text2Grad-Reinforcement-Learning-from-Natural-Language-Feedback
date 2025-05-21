@@ -7,7 +7,6 @@ from torch.utils.data import Dataset, DataLoader
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from functools import partial
 
-# Move environment variable setting to if __name__ == "__main__" block
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 class QACDataset(Dataset):
@@ -82,8 +81,7 @@ def collate_fn_with_tokenizer(batch, tokenizer): # Add tokenizer as an argument
     for ids, mask in zip(input_ids, attention_masks):
         padding_length = max_length - len(ids)
         if padding_length > 0:
-            # Add padding to the left side
-            # Ensure tokenizer.pad_token_id is accessible and correct
+
             pad_ids = torch.full((padding_length,), tokenizer.pad_token_id, dtype=torch.long)
             pad_mask = torch.zeros(padding_length, dtype=torch.long)
 
@@ -130,11 +128,9 @@ def sample_and_infer(args):
     tokenizer.padding_side = 'left'
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
-        # Ensure pad_token_id is set if pad_token was None
         if tokenizer.pad_token_id is None:
              tokenizer.pad_token_id = tokenizer.eos_token_id
 
-    # Make sure the padding configuration is applied
     print(f"Tokenizer padding side: {tokenizer.padding_side}")
 
     model = AutoModelForCausalLM.from_pretrained(
@@ -143,11 +139,9 @@ def sample_and_infer(args):
         device_map="balanced"
     )
 
-    # Load data
     with open(input_json_path, "r") as f:
         data = json.load(f)
 
-    # Select samples at regular intervals if needed
     sample_size = args.sample_size
     keys_or_indices = list(range(len(data))) if isinstance(data, list) else list(data.keys())
 
@@ -156,27 +150,21 @@ def sample_and_infer(args):
         sampled_keys_or_indices = [keys_or_indices[i] for i in range(0, len(keys_or_indices), interval)][:sample_size]
         if isinstance(data, list):
             sampled_data = [data[i] for i in sampled_keys_or_indices]
-        else: # it's a dict
+        else: 
             sampled_data = {key: data[key] for key in sampled_keys_or_indices}
         print(f"Selecting {len(sampled_data)} examples at interval of {interval} from {len(keys_or_indices)} total examples")
     else:
         sampled_data = data # Use all data
         print(f"Using all available data ({len(keys_or_indices)} items).")
 
-    # Create dataset and dataloader
     prompt_max_length = 2048-1024
     max_length = 4096-1024
     dataset = QACDataset(sampled_data, tokenizer, prompt_max_length, max_length)
 
-    # Create dataloader with the custom collate function
-    # Use functools.partial or a lambda to pass the tokenizer
     collate_fn = partial(collate_fn_with_tokenizer, tokenizer=tokenizer)
-    # Alternatively, use lambda:
-    # collate_fn = lambda batch: collate_fn_with_tokenizer(batch, tokenizer)
 
     dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, collate_fn=collate_fn)
 
-    # Add configuration constants
     GENERATION_CONFIG = {
         "temperature": 0.6,
         "do_sample": True,
@@ -185,12 +173,11 @@ def sample_and_infer(args):
         "min_new_tokens": 50
     }
 
-    # Run inference
     results = []
     for i, batch in enumerate(dataloader):
         input_ids = batch["input_ids"].to(model.device)
         attention_mask = batch["attention_mask"].to(model.device)
-        query = batch["query"]  # Get the original queries
+        query = batch["query"]  
         ideal_human_summary = batch["ideal_human_summary"]
 
         with torch.no_grad():
@@ -202,12 +189,9 @@ def sample_and_infer(args):
                 **GENERATION_CONFIG
             )
 
-        # Process each item in the batch
         for j in range(len(outputs)):
-            # Decode the generated text
             generated_text = tokenizer.decode(outputs[j], skip_special_tokens=True)
 
-            # Extract the assistant's response (after the last "assistant" token)
             assistant_response = generated_text.split("<|end_header_id|>\n")[-1].strip()
             print(assistant_response)
             results.append({
@@ -228,7 +212,6 @@ def sample_and_infer(args):
     print(f"Results saved to {output_path}")
 
 if __name__ == "__main__":    
-    # Add argument descriptions
     parser = argparse.ArgumentParser(
         description="Run inference with a specified model on a dataset",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter

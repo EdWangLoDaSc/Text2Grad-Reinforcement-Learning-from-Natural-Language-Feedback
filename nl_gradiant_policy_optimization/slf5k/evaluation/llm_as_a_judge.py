@@ -1,5 +1,3 @@
-# eval_response_quality.py
-
 from openai import AsyncOpenAI
 import json
 from typing import Dict, List, Any
@@ -9,7 +7,6 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 import random
 import os
 
-# Initialize OpenAI client
 client = AsyncOpenAI(
     api_key=os.getenv("OPENAI_API_KEY")
 )
@@ -84,11 +81,9 @@ async def get_evaluation(prompt: str) -> Dict:
 
         content = response.choices[0].message.content.strip()
 
-        # Try to find JSON content if there's any surrounding text
         try:
             return json.loads(content)
         except json.JSONDecodeError:
-            # Try to extract JSON if there's surrounding text
             start_idx = content.find('{')
             end_idx = content.rfind('}') + 1
             if start_idx != -1 and end_idx != 0:
@@ -143,24 +138,16 @@ async def evaluate_single_example(example: Dict[str, Any], response1: str, respo
 async def main():
     # Load data files
     print("Loading data files...")
-    #with open('/cosmos/hanyang_critic/RLAIF/ppo_token/ppo_train/SLF5K_Eval/result/0_2000_merge_samples.json', 'r', encoding='utf-8') as f:
-    #    data1 = json.load(f)
 
-    #with open('/cosmos/hanyang_critic/RLAIF/ppo_token/ppo_train/SLF5K_Eval/result/checkpoint-300-merge_samples.json', 'r', encoding='utf-8') as f:
-    #    data2 = json.load(f)
-    with open('/cosmos/hanyang_critic/RLAIF/ppo_token/ppo_train/SLF5K_Eval/result/checkpoint-400-merge_samples.json', 'r', encoding='utf-8') as f:
+    with open('./result/checkpoint-400-merge_samples.json', 'r', encoding='utf-8') as f:
         data1 = json.load(f)
 
-    with open('/cosmos/hanyang_critic/RLAIF/ppo_token/ppo_train/SLF5K_Eval/result/epoch_2_step_200_merge_samples.json', 'r', encoding='utf-8') as f:
-        data2 = json.load(f)
-    with open('/cosmos/hanyang_critic/RLAIF/ppo_token/ppo_train/SLF5K_Eval/result/epoch_1_step_180-merge_samples.json', 'r', encoding='utf-8') as f:
+    with open('./result/epoch_2_step_200_merge_samples.json', 'r', encoding='utf-8') as f:
         data2 = json.load(f)
 
-    # Process in batches
     batch_size = 8
     all_evaluations = []
 
-    # Ensure we only evaluate examples present in both files
     common_examples = []
     for ex1, ex2 in zip(data1, data2):
         if ex1.get('query') == ex2.get('query'):
@@ -217,21 +204,17 @@ async def main():
             evaluate_single_example(item['example'], item['response1'], item['response2'])
             for item in batch
         ])
-        # Filter out None results from failed evaluations
         batch_results = [r for r in batch_results if r is not None]
         all_evaluations.extend(batch_results)
 
-        # Print statistics every 30 samples
         if len(all_evaluations) % 30 == 0:
             print(f"\nProcessed {len(all_evaluations)} samples")
             print_statistics(all_evaluations)
 
-        # Periodic saving
         if (i + batch_size) % 10 == 0:
             with open('response_evaluation_results.json', 'w', encoding='utf-8') as f:
                 json.dump(all_evaluations, f, indent=2, ensure_ascii=False)
 
-    # Final statistics
     print("\nFinal Results:")
     print_statistics(all_evaluations)
 

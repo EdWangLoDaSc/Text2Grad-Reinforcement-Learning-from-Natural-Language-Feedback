@@ -161,7 +161,7 @@ config = PPOConfig(
 
 
 project_name = script_args.output_dir.split("/")[-1]
-wandb.init(project='ppo_slf5k_cot_token_level_llama_code_nofeedbacl', name="3.1b-cot-PPO-Token-kl")
+wandb.init(project=project_name, name="Text2Grad-KodCode")
 
 tokenizer = AutoTokenizer.from_pretrained(
     script_args.base_model_name,
@@ -175,7 +175,7 @@ reward_tokenizer = AutoTokenizer.from_pretrained(
     model_max_length=2500,
     use_fast=True,
     padding_side='left'
-)  # 1024+521 =
+)  
 
 if not tokenizer.pad_token:
     tokenizer.pad_token = tokenizer.eos_token
@@ -189,8 +189,6 @@ if not reward_tokenizer.pad_token:
 def collator(data):
     return dict((key, [d[key] for d in data]) for key in data[0])
 
-
-# We retrieve the dataloader by calling the `build_dataset` function.
 ds = QACDataset(script_args.data_file_path, tokenizer, script_args.prompt_max_length, script_args.answer_max_length)
 
 set_seed(config.seed)
@@ -214,10 +212,8 @@ model = AutoModelForCausalLMWithValueHead.from_pretrained(
 if script_args.base_model_adapter_model:
     print(f"Loading adapter model from {script_args.base_model_adapter_model}")
     try:
-        # Load adapter weights
         adapter_model_state = safetensors.torch.load_file(
             os.path.join(script_args.base_model_adapter_model, "adapter_model.safetensors"))
-        # Load value head to CPU, let load_state_dict handle device placement
         v_head = torch.load(os.path.join(script_args.base_model_adapter_model, "pytorch_model.bin"),
                             map_location="cpu")
 
@@ -237,7 +233,6 @@ if script_args.base_model_adapter_model:
         if os.path.exists(optimizer_path):
             print(f"Loading optimizer state from {optimizer_path}")
             try:
-                # Use weights_only=True to avoid security warnings
                 optimizer_state = torch.load(optimizer_path, map_location="cuda:1", weights_only=True)
                 if not optimizer_state:
                     raise ValueError("Empty optimizer state")
@@ -251,20 +246,14 @@ if script_args.base_model_adapter_model:
         else:
             print("No optimizer state found, starting with fresh optimizer")
 
-        # Extract epoch and step information from checkpoint path
         try:
             checkpoint_path = script_args.base_model_adapter_model
-            # Assume path format is .../epoch_X_step_Y
             path_parts = checkpoint_path.split('/')[-1].split('_')
 
-            # Extract epoch and step
             cur_epoch = int(path_parts[path_parts.index('epoch') + 1])
             cur_step = int(path_parts[path_parts.index('step') + 1])
-
-            # Calculate wandb_step
-            # Calculate steps per epoch
             batch_size = script_args.batch_size
-            num_processes = torch.cuda.device_count()  # Use GPU count instead of ppo_trainer.accelerator.num_processes
+            num_processes = torch.cuda.device_count()
             steps_per_epoch = len(ds) // (batch_size * num_processes)
             if len(ds) % (batch_size * num_processes) != 0:
                 steps_per_epoch += 1
@@ -272,7 +261,6 @@ if script_args.base_model_adapter_model:
             wandb_step = cur_epoch * steps_per_epoch + cur_step
             print(f"Restored training state: epoch={cur_epoch}, step={cur_step}, wandb_step={wandb_step}")
 
-            # Print detailed information for debugging
             print(f"Debug info:")
             print(f"Dataset size: {len(ds)}")
             print(f"Batch size: {batch_size}")
@@ -318,11 +306,6 @@ lr_scheduler = get_scheduler(
     num_training_steps=script_args.steps,
 )
 
-# Add this before creating the PPOWTrainer
-import json
-import os
-
-# Print the DeepSpeed config being used
 ds_config_path = os.environ.get('DEEPSPEED_CONFIG_FILE', '/path/to/your/ds_config.json')
 if os.path.exists(ds_config_path):
     with open(ds_config_path, 'r') as f:
@@ -374,13 +357,6 @@ generation_kwargs = {
     "pad_token_id": tokenizer.pad_token_id,
     "eos_token_id": tokenizer.eos_token_id,
 }
-# for reward model
-sent_kwargs = {
-    "batch_size": script_args.batch_size,
-    "max_new_tokens": 768,
-    "pad_token_id": reward_tokenizer.eos_token_id,
-    "eos_token_id": reward_tokenizer.eos_token_id
-}
 
 # for reward model
 sent_kwargs = {
@@ -391,7 +367,6 @@ sent_kwargs = {
 }
 
 def check_and_fix_tensor(tensor, eos_id):
-    # Ensure input is 1D Tensor
     if len(tensor.shape) != 1:
         raise ValueError("Input tensor must be 1D.")
 
@@ -418,20 +393,16 @@ def prepare_input_data(questions, responses):
     """
     input_datas = []
     for user_prompt, assistant_response in zip(questions, responses):
-        # Extract all Python code blocks
         code_blocks = re.findall(r'```(?:python|py)?\n(.*?)```', assistant_response, re.DOTALL)
 
-        # If no Python code blocks found, try matching any code blocks
         if not code_blocks:
             code_blocks = re.findall(r'```(?:\w+)?\n(.*?)```', assistant_response, re.DOTALL)
 
-        # Combine all found code blocks, separated by newlines
         if code_blocks:
             code_content = '\n\n'.join(block.strip() for block in code_blocks)
         else:
             code_content = assistant_response.strip()
 
-        # Ensure proper newlines are preserved
         code_content = code_content.replace('\\n', '\n')
         prompt = f'''Please analyze the following programming problem and solution:
 
@@ -493,64 +464,46 @@ def fuzzy_find(text, pattern, threshold=0.8):
     if not norm_pattern: # Don't match empty patterns
         return -1, -1
 
-    # Try exact match first for efficiency
     exact_match_start = text.find(pattern)
     if exact_match_start != -1:
         return exact_match_start, exact_match_start + len(pattern)
 
-    # For short patterns, try more aggressive matching
     if len(norm_pattern) < 20:
-        # Try to find the pattern with some flexibility for whitespace
         words_in_pattern = norm_pattern.split()
         if words_in_pattern:
-            # Look for the first few words to anchor the match
             anchor = ' '.join(words_in_pattern[:min(3, len(words_in_pattern))])
             anchor_pos = norm_text_full.find(anchor)
             if anchor_pos >= 0:
-                # Estimate where this would be in the original text
-                # This is approximate but helps with short patterns
                 approx_start = text.find(anchor, max(0, anchor_pos - 20))
                 if approx_start >= 0:
-                    # Estimate end based on pattern length
                     approx_end = min(len(text), approx_start + len(pattern) * 1.2)
                     return approx_start, int(approx_end)
 
-    # Use SequenceMatcher on normalized strings within a sliding window approach
     best_ratio = 0
     best_match_info = None
 
-    # Use smaller step size for more thorough matching
     pattern_len = len(pattern)
-    step_size = max(1, pattern_len // 8)  # Smaller step size for better coverage
+    step_size = max(1, pattern_len // 8)
 
     for i in range(0, len(text) - min(len(text), pattern_len) + 1, step_size):
-        # Extract a chunk from the original text
-        # Make chunk larger than pattern to allow for whitespace diffs
-        chunk_end = min(len(text), i + int(pattern_len * 2.0))  # Increased window size
+        chunk_end = min(len(text), i + int(pattern_len * 2.0))
         original_chunk = text[i:chunk_end]
 
-        # Normalize the original chunk for comparison
         norm_chunk = normalize_code_whitespace(original_chunk)
 
         if not norm_chunk: continue
 
-        # Compare normalized chunk with normalized pattern
         matcher = difflib.SequenceMatcher(None, norm_chunk, norm_pattern, autojunk=False)
         ratio = matcher.ratio()
 
-        # If this ratio is better than what we've seen, store it.
         if ratio > best_ratio:
             best_ratio = ratio
-            # Find the longest matching block within this chunk comparison
             match = matcher.find_longest_match(0, len(norm_chunk), 0, len(norm_pattern))
             if match.size > 0:
-                # More precise mapping: find where the match starts in the original chunk
                 matched_text_in_norm = norm_chunk[match.a:match.a + match.size]
-                # Map back to original text more precisely
                 chunk_start_in_original = i
                 match_start_in_original = chunk_start_in_original
 
-                # Try to find the matched text in the original chunk
                 for j in range(len(original_chunk) - match.size + 1):
                     if normalize_code_whitespace(original_chunk[j:j+match.size]) == matched_text_in_norm:
                         match_start_in_original = chunk_start_in_original + j
@@ -559,11 +512,9 @@ def fuzzy_find(text, pattern, threshold=0.8):
                 match_end_in_original = match_start_in_original + len(pattern)
                 best_match_info = (match_start_in_original, match_end_in_original, ratio)
 
-    # If the best ratio found meets the threshold, return the estimated original indices
     if best_match_info and best_match_info[2] >= threshold:
         return best_match_info[0], best_match_info[1]
 
-    # Lower threshold for a second attempt if no match was found
     if best_match_info and best_match_info[2] >= threshold * 0.8:
         print(f"Using lower threshold match: Ratio={best_match_info[2]:.2f}, Pattern='{pattern[:50]}...'")
         return best_match_info[0], best_match_info[1]
@@ -573,22 +524,20 @@ def fuzzy_find(text, pattern, threshold=0.8):
 
 def process_response_with_spans(response, wrong_code, improvement_code):
     """
-    处理响应和代码片段，生成单词评分列表，保持非代码部分的分数为1
-    使用分块处理方式提高效率
+    Process response and code snippets to generate word score list, keeping non-code parts score as 1
+    Using block processing for efficiency
     """
     if not response:
         return []
 
-    # Clean up code snippets
     original_wrong_code = [str(s).strip() for s in wrong_code if s and isinstance(s, str)]
     original_improvement_code = [str(s).strip() for s in improvement_code if s and isinstance(s, str)]
 
     # Find all matching spans
     matched_spans = []
 
-    # Process wrong code (score -2)
     for span_text in original_wrong_code:
-        if len(span_text) < 2:  # Skip very short spans that might cause false matches
+        if len(span_text) < 2:
             print(f"[SKIPPED - TOO SHORT] Wrong code span: '{span_text}'")
             continue
 
@@ -597,14 +546,11 @@ def process_response_with_spans(response, wrong_code, improvement_code):
             matched_spans.append((start, end, -1))
             print(f"[MATCHED - WRONG] Span: '{span_text[:50]}...' found at ({start}:{end})")
         else:
-            # Try with a more aggressive approach for unmatched spans
             words = span_text.split()
-            if len(words) > 3:  # Only try with longer spans
-                # Try to match just the first part of the span
+            if len(words) > 3:
                 partial_span = ' '.join(words[:min(10, len(words))])
                 start, end = fuzzy_find(response, partial_span, threshold=0.7)
                 if start >= 0:
-                    # Estimate the end based on original span length
                     estimated_end = min(len(response), start + len(span_text))
                     matched_spans.append((start, estimated_end, -1))
                     print(f"[PARTIAL MATCH - WRONG] Span: '{partial_span[:50]}...' found at ({start}:{estimated_end})")
@@ -613,9 +559,8 @@ def process_response_with_spans(response, wrong_code, improvement_code):
             else:
                 print(f"[NOT MATCHED - WRONG] Span: '{span_text[:50]}...'")
 
-    # Process improvement code (score 0.0)
     for span_text in original_improvement_code:
-        if len(span_text) < 2:  # Skip very short spans that might cause false matches
+        if len(span_text) < 2:
             print(f"[SKIPPED - TOO SHORT] Improvement code span: '{span_text}'")
             continue
 
@@ -624,14 +569,11 @@ def process_response_with_spans(response, wrong_code, improvement_code):
             matched_spans.append((start, end, 0.0))
             print(f"[MATCHED - IMPROVE] Span: '{span_text[:50]}...' found at ({start}:{end})")
         else:
-            # Try with a more aggressive approach for unmatched spans
             words = span_text.split()
-            if len(words) > 3:  # Only try with longer spans
-                # Try to match just the first part of the span
+            if len(words) > 3:
                 partial_span = ' '.join(words[:min(10, len(words))])
                 start, end = fuzzy_find(response, partial_span, threshold=0.7)
                 if start >= 0:
-                    # Estimate the end based on original span length
                     estimated_end = min(len(response), start + len(span_text))
                     matched_spans.append((start, estimated_end, 0.0))
                     print(f"[PARTIAL MATCH - IMPROVE] Span: '{partial_span[:50]}...' found at ({start}:{estimated_end})")
@@ -640,45 +582,35 @@ def process_response_with_spans(response, wrong_code, improvement_code):
             else:
                 print(f"[NOT MATCHED - IMPROVE] Span: '{span_text[:50]}...'")
 
-    # Sort all matched spans by start position
     matched_spans.sort(key=lambda x: x[0])
 
-    # Merge overlapping spans, prioritize negative score (error code)
     merged_spans = []
     if matched_spans:
         current_span = matched_spans[0]
         for next_span in matched_spans[1:]:
-            # If current span and next span overlap
             if current_span[1] >= next_span[0]:
-                # Merge spans, prioritize lower score (-1 is prioritized over 0.0)
                 new_end = max(current_span[1], next_span[1])
-                new_score = min(current_span[2], next_span[2])  # -2 < 0.0, so min will choose -2
+                new_score = min(current_span[2], next_span[2])
                 current_span = (current_span[0], new_end, new_score)
             else:
                 merged_spans.append(current_span)
                 current_span = next_span
         merged_spans.append(current_span)
 
-    # Create block list, each block contains (start, end, score)
     blocks = []
     current_pos = 0
 
-    # Add normal text blocks between matched spans (score 1.0)
     for start, end, score in merged_spans:
         if start > current_pos:
-            blocks.append((current_pos, start, 1.0))  # Normal text block
-        blocks.append((start, end, score))  # Matched span block
+            blocks.append((current_pos, start, 1.0))  
+        blocks.append((start, end, score))
         current_pos = end
 
-    # Add normal text block after last matched span
     if current_pos < len(response):
         blocks.append((current_pos, len(response), 1.0))
 
-    # Split response text and assign scores
     words = response.split()
-    word_scores = [1.0] * len(words)  # Default score
-
-    # Calculate start and end positions for each word
+    word_scores = [1.0] * len(words)
     word_positions = []
     temp_pos = 0
     for word in words:
@@ -688,28 +620,21 @@ def process_response_with_spans(response, wrong_code, improvement_code):
             word_positions.append((start, end))
             temp_pos = end
         else:
-            # If word not found, use estimated position
             word_positions.append((temp_pos, temp_pos + len(word)))
             temp_pos += len(word) + 1
 
-    # Assign scores to each word based on blocks
     for i, (word_start, word_end) in enumerate(word_positions):
-        word_center = (word_start + word_end) // 2  # Use word center point to determine block
+        word_center = (word_start + word_end) // 2
 
-        # Find word's block
         for block_start, block_end, block_score in blocks:
             if block_start <= word_center < block_end:
                 word_scores[i] = block_score
                 break
 
-    # Verify if any matched spans were not assigned to words
     if merged_spans and not any(score != 1.0 for score in word_scores):
         print("WARNING: No words were assigned non-default scores despite having matched spans!")
-        # Try more direct method to assign scores
         for span_start, span_end, span_score in merged_spans:
-            # Find all words in this span
             for i, (word_start, word_end) in enumerate(word_positions):
-                # If word overlaps with span
                 if (word_start <= span_end and word_end >= span_start):
                     word_scores[i] = span_score
                     print(f"Directly assigned score {span_score} to word '{words[i]}'")
@@ -728,7 +653,6 @@ def extract_spans_from_reward_model_output(text_to_parse):
         dict: Dictionary containing code_feedback, wrong_code and improvement_code
     """
     try:
-        # Try to parse JSON directly
         json_result = load_json_from_string(text_to_parse, log_details=True)
 
         if json_result and isinstance(json_result, dict):
@@ -738,7 +662,6 @@ def extract_spans_from_reward_model_output(text_to_parse):
                 "improvement_code": json_result.get("improvement_code", [])
             }
 
-        # If direct parsing fails, try using regular expressions
         code_feedback_pattern = r'"code_feedback"\s*:\s*"([^"]*)"'
         wrong_code_pattern = r'"wrong_code"\s*:\s*\[(.*?)\]'
         improvement_code_pattern = r'"improvement_code"\s*:\s*\[(.*?)\]'
@@ -770,7 +693,6 @@ def extract_spans_from_reward_model_output(text_to_parse):
         traceback.print_exc()
         return None
 
-# Modify the code in the inference_reward function to handle the new output format
 def inference_reward(reward_model, input_datas):
     """
     Enhanced error handling for reward model inference
@@ -806,8 +728,7 @@ def inference_reward(reward_model, input_datas):
     except Exception as e:
         print(f"Error in inference_reward: {str(e)}")
         traceback.print_exc()
-        # There might be an issue with the return value here, should return a result list with the same length as input_datas
-        return [[{'generated_text': ''}] for _ in input_datas]]  # Fixed to return an empty result list with correct length
+        return [[{'generated_text': ''}] for _ in input_datas]
 
 
 def log_error(error_dir, step, error, context=None):
@@ -834,14 +755,13 @@ def load_json_from_string(text, log_details=False):
     Try to extract JSON from text using regex patterns first, then fallback to json.loads
     """
     try:
-        # First try to find JSON pattern with regex
         json_pattern = r'\{(?:[^{}]|(?:\{(?:[^{}]|(?:\{[^{}]*\}))*\}))*\}'
         matches = re.findall(json_pattern, text)
 
         if matches:
             if log_details:
                 print(f"Found {len(matches)} potential JSON matches")
-                for i, match in enumerate(matches[:2]):  # Only show first two matches
+                for i, match in enumerate(matches[:2]):
                     print(f"Match {i + 1} sample (first 100 chars): {match[:100]}...")
 
             for i, match in enumerate(matches):

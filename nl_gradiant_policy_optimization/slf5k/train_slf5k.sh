@@ -31,13 +31,13 @@ ADAP_KL_CTRL=true
 KL_PENALTY="full"
 LOCAL_RANK=0
 
-PROJECT_NAME="<YOUR_PROJECT_NAME>" # e.g., "llm_token_ppo_project"
+PROJECT_NAME="Text2Grad-SLF5K" # e.g., "Text2Grad-SLF5K"
 DATA_FILE_PATH="<PATH_TO_TRAINING_DATA>" # e.g., "../data/train.json"
 VALID_DATA_FILE_PATH="<PATH_TO_VALIDATION_DATA>" # e.g., "../data/valid.json"
 TRACKER_KWARGS="{\"wandb\": {\"entity\": \"<YOUR_WANDB_ENTITY>\", \"name\": \"<YOUR_RUN_NAME>\"}}"
 PROMPT_MAX_LENGTH=640
 ANSWER_MAX_LENGTH=128
-MASK_LOSS="<OPTIONAL_MASK_LOSS>" # Leave empty if not needed
+MASK_LOSS="" # Leave empty if not needed
 STRATEGY="qa_strategy"
 
 # Set visible GPUs
@@ -45,7 +45,7 @@ export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 
 # Run PPO training
 echo "Starting PPO training..."
-python train_token_ppo.py \
+python train.py \
     --base_model_name "$BASE_MODEL_NAME" \
     --base_model_adapter_model "$BASE_MODEL_ADAPTER_MODEL" \
     --reward_model_name "$REWARD_MODEL_NAME" \
